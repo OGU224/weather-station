@@ -1,0 +1,11 @@
+flask
+flask-cors
+google-cloud-bigquery
+google-cloud-texttospeech
+google-cloud-speech
+openai
+requests
+streamlit
+plotly
+pandas
+python-dotenv
