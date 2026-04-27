@@ -1,9 +1,18 @@
--- Schema des tables BigQuery.
+-- Schema des tables BigQuery (Mis à jour pour le schéma personnalisé).
 --
--- Table sensor_readings :
---   id, device_id, timestamp, temperature_c, humidity_pct,
---   air_quality_index, air_quality_label, motion_detected
+-- Table indoor_sensor_data :
+--   timestamp (TIMESTAMP, REQUIRED)
+--   device_id (STRING, REQUIRED)
+--   temperature_c (FLOAT, NULLABLE)
+--   humidity_percent (FLOAT, NULLABLE)
+--   co2_ppm (INTEGER, NULLABLE)
+--   tvoc_ppb (INTEGER, NULLABLE)
+--   motion_detected (BOOLEAN, NULLABLE)
 --
--- Table weather_history :
---   id, timestamp, city, temperature_c, feels_like_c, humidity_pct,
---   pressure_hpa, wind_speed_ms, weather_main, weather_description, weather_icon
+-- Table outdoor_weather_data :
+--   timestamp (TIMESTAMP, REQUIRED)
+--   location_name (STRING, REQUIRED)
+--   outdoor_temp_c (FLOAT, NULLABLE)
+--   humidity_percent (FLOAT, NULLABLE)
+--   weather_condition (STRING, NULLABLE)
+--   weather_icon (STRING, NULLABLE)
