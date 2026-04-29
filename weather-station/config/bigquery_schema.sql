@@ -1,9 +1,0 @@
--- Schema des tables BigQuery.
---
--- Table sensor_readings :
---   id, device_id, timestamp, temperature_c, humidity_pct,
---   air_quality_index, air_quality_label, motion_detected
---
--- Table weather_history :
---   id, timestamp, city, temperature_c, feels_like_c, humidity_pct,
---   pressure_hpa, wind_speed_ms, weather_main, weather_description, weather_icon
