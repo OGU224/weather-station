@@ -48,15 +48,17 @@ class BigQueryClient:
             logger.error(f"Exception BigQuery: {e}")
             return False
 
-    def get_latest_sensor_reading(self, device_id="m5stack-01"):
+    def get_latest_sensor_reading(self, device_id=None):
+        where_clause = "WHERE device_id = @device_id" if device_id else ""
         query = f"""
             SELECT * FROM `{self.sensors_table}`
-            WHERE device_id = @device_id
+            {where_clause}
             ORDER BY timestamp DESC LIMIT 1
         """
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[bigquery.ScalarQueryParameter("device_id", "STRING", device_id)]
-        )
+        query_parameters = []
+        if device_id:
+            query_parameters.append(bigquery.ScalarQueryParameter("device_id", "STRING", device_id))
+        job_config = bigquery.QueryJobConfig(query_parameters=query_parameters)
         try:
             for row in self.client.query(query, job_config=job_config).result():
                 return dict(row)
@@ -65,19 +67,18 @@ class BigQueryClient:
             logger.error(f"Query error: {e}")
             return None
 
-    def get_sensor_history(self, device_id="m5stack-01", hours=24):
+    def get_sensor_history(self, device_id=None, hours=24):
+        device_filter = "AND device_id = @device_id" if device_id else ""
+        since = datetime.utcnow() - timedelta(hours=hours)
         query = f"""
             SELECT * FROM `{self.sensors_table}`
-            WHERE device_id = @device_id AND timestamp >= @since
+            WHERE timestamp >= @since {device_filter}
             ORDER BY timestamp ASC
         """
-        since = datetime.utcnow() - timedelta(hours=hours)
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("device_id", "STRING", device_id),
-                bigquery.ScalarQueryParameter("since", "TIMESTAMP", since),
-            ]
-        )
+        query_parameters = [bigquery.ScalarQueryParameter("since", "TIMESTAMP", since)]
+        if device_id:
+            query_parameters.append(bigquery.ScalarQueryParameter("device_id", "STRING", device_id))
+        job_config = bigquery.QueryJobConfig(query_parameters=query_parameters)
         try:
             return [dict(row) for row in self.client.query(query, job_config=job_config).result()]
         except Exception as e:

@@ -7,3 +7,6 @@ service-account*.json
 .DS_Store
 *.log
 .streamlit/secrets.toml
+device/device_config.py
+device/main_local.py
+device/*_local.py

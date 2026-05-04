@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 class WeatherService:
 
     def __init__(self):
+        self.last_error = None
         self.params = {
             "q": f"{OWM_CITY},{OWM_COUNTRY_CODE}",
             "units": OWM_UNITS,
@@ -29,6 +30,7 @@ class WeatherService:
 
     def get_current_weather(self):
         try:
+            self.last_error = None
             resp = requests.get(f"{OWM_BASE_URL}/weather", params=self.params, timeout=10)
             resp.raise_for_status()
             d = resp.json()
@@ -45,11 +47,13 @@ class WeatherService:
                 city=d["name"],
             )
         except Exception as e:
+            self.last_error = str(e)
             logger.error(f"Erreur OpenWeatherMap: {e}")
             return None
 
     def get_forecast(self, days=5):
         try:
+            self.last_error = None
             resp = requests.get(f"{OWM_BASE_URL}/forecast", params=self.params, timeout=10)
             resp.raise_for_status()
             data = resp.json()
@@ -75,5 +79,6 @@ class WeatherService:
                 ))
             return forecasts
         except Exception as e:
+            self.last_error = str(e)
             logger.error(f"Erreur forecast: {e}")
             return []
