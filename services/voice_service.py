@@ -18,10 +18,29 @@ DEFAULT_TTS_VOICE = os.getenv("GOOGLE_TTS_VOICE", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
 GEMINI_TTS_VOICE = os.getenv("GEMINI_TTS_VOICE", "Kore")
+GEMINI_TTS_GAIN = float(os.getenv("GEMINI_TTS_GAIN", "3.0"))
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "12"))
 
 
+def _amplify_pcm(pcm_data, gain):
+    """Amplify signed 16-bit little-endian PCM with clipping."""
+    if gain <= 1:
+        return pcm_data
+
+    amplified = bytearray(len(pcm_data))
+    for index in range(0, len(pcm_data) - 1, 2):
+        sample = int.from_bytes(pcm_data[index:index + 2], "little", signed=True)
+        boosted = int(sample * gain)
+        if boosted > 32767:
+            boosted = 32767
+        elif boosted < -32768:
+            boosted = -32768
+        amplified[index:index + 2] = boosted.to_bytes(2, "little", signed=True)
+    return bytes(amplified)
+
+
 def _wav_bytes_from_pcm(pcm_data, channels=1, rate=24000, sample_width=2):
+    pcm_data = _amplify_pcm(pcm_data, GEMINI_TTS_GAIN)
     buffer = BytesIO()
     with wave.open(buffer, "wb") as wav_file:
         wav_file.setnchannels(channels)

@@ -131,6 +131,7 @@ def _aqi_label(aqi) -> tuple[str, str]:
 def render():
     """Render the real-time dashboard page."""
     st.title("Real-Time Conditions")
+    st.caption("Latest indoor sensor readings, outdoor conditions, and forecast.")
 
     with st.spinner("Fetching latest data..."):
         sensor, sensor_source = _fetch_latest_sensor()
@@ -150,97 +151,89 @@ def render():
         if aqi_label == "Poor":
             st.warning(f"Poor air quality: AQI is {aqi:.0f}. Ventilate the room.")
 
-    st.markdown("### Indoor")
-    c1, c2, c3, c4 = st.columns(4)
+    tab_overview, tab_forecast, tab_diagnostics = st.tabs(["Overview", "Forecast", "Diagnostics"])
 
-    if sensor:
-        temp_in = sensor.get("temperature_c")
-        hum_in = sensor.get("humidity_pct")
-        aqi_val = sensor.get("air_quality_index")
-        motion = bool(sensor.get("motion_detected", False))
-        aqi_lbl, aqi_color = _aqi_label(aqi_val)
-        hum_numeric = _number(hum_in)
-        hum_color = "#f87171" if hum_numeric is not None and hum_numeric < HUMIDITY_ALERT else "#34d399"
+    with tab_overview:
+        st.markdown("### Indoor")
+        c1, c2, c3, c4 = st.columns(4)
 
-        c1.markdown(metric_card("Temperature", _format_number(temp_in), "C", icon="Temp"), unsafe_allow_html=True)
-        c2.markdown(metric_card("Humidity", _format_number(hum_in, 0), "%", icon="H2O", color=hum_color), unsafe_allow_html=True)
-        c3.markdown(metric_card("Air Quality", aqi_lbl, f"({_format_number(aqi_val, 0)})", icon="AQI", color=aqi_color), unsafe_allow_html=True)
-        c4.markdown(metric_card("Motion", "Detected" if motion else "None", "", icon="Move", color="#fb923c" if motion else "#94a3b8"), unsafe_allow_html=True)
-    else:
-        for c in [c1, c2, c3, c4]:
-            c.markdown(metric_card("--", "--", "", icon="No data", color="#64748b"), unsafe_allow_html=True)
-        error = st.session_state.get("sensor_error")
-        if error:
-            st.caption(f"Indoor data unavailable. Middleware is unreachable and direct BigQuery failed: {error}")
+        if sensor:
+            temp_in = sensor.get("temperature_c")
+            hum_in = sensor.get("humidity_pct")
+            aqi_val = sensor.get("air_quality_index")
+            motion = bool(sensor.get("motion_detected", False))
+            aqi_lbl, aqi_color = _aqi_label(aqi_val)
+            hum_numeric = _number(hum_in)
+            hum_color = "#f87171" if hum_numeric is not None and hum_numeric < HUMIDITY_ALERT else "#34d399"
+
+            c1.markdown(metric_card("Temperature", _format_number(temp_in), "C", icon="Temp"), unsafe_allow_html=True)
+            c2.markdown(metric_card("Humidity", _format_number(hum_in, 0), "%", icon="H2O", color=hum_color), unsafe_allow_html=True)
+            c3.markdown(metric_card("Air Quality", aqi_lbl, f"({_format_number(aqi_val, 0)})", icon="AQI", color=aqi_color), unsafe_allow_html=True)
+            c4.markdown(metric_card("Motion", "Detected" if motion else "None", "", icon="Move", color="#fb923c" if motion else "#94a3b8"), unsafe_allow_html=True)
         else:
-            st.caption("Indoor data unavailable. Check the middleware or BigQuery credentials.")
+            for c in [c1, c2, c3, c4]:
+                c.markdown(metric_card("--", "--", "", icon="No data", color="#64748b"), unsafe_allow_html=True)
+            error = st.session_state.get("sensor_error")
+            if error:
+                st.caption(f"Indoor data unavailable. Middleware is unreachable and direct BigQuery failed: {error}")
+            else:
+                st.caption("Indoor data unavailable. Check the middleware or BigQuery credentials.")
 
-    if sensor and sensor_source == "bigquery":
-        st.caption("Indoor data loaded directly from BigQuery because the middleware was unreachable.")
+        st.markdown("### Outdoor")
+        o1, o2, o3, o4 = st.columns(4)
 
-    st.markdown("<br>", unsafe_allow_html=True)
+        if weather:
+            temp_out = weather.get("temperature_c")
+            feels = weather.get("feels_like_c")
+            wind = weather.get("wind_speed_ms")
+            w_main = weather.get("weather_main", "--")
+            w_desc = weather.get("weather_description", "").capitalize()
+            w_icon = weather.get("weather_icon", "")
+            icon_url = f"https://openweathermap.org/img/wn/{w_icon}@2x.png" if w_icon else ""
+            fallback_label = weather_emoji(w_main)
 
-    st.markdown("### Outdoor")
-    o1, o2, o3, o4 = st.columns(4)
+            o1.markdown(metric_card("Temperature", _format_number(temp_out), "C", icon="Temp", color="#fb923c"), unsafe_allow_html=True)
+            o2.markdown(metric_card("Feels Like", _format_number(feels), "C", icon="Feels", color="#fb923c"), unsafe_allow_html=True)
+            o3.markdown(metric_card("Wind", _format_number(wind), "m/s", icon="Wind"), unsafe_allow_html=True)
 
-    if weather:
-        if weather_source == "openweathermap":
-            st.caption("Outdoor data loaded directly from OpenWeatherMap because the middleware was unreachable.")
-
-        temp_out = weather.get("temperature_c")
-        feels = weather.get("feels_like_c")
-        wind = weather.get("wind_speed_ms")
-        w_main = weather.get("weather_main", "--")
-        w_desc = weather.get("weather_description", "").capitalize()
-        w_icon = weather.get("weather_icon", "")
-        icon_url = f"https://openweathermap.org/img/wn/{w_icon}@2x.png" if w_icon else ""
-        fallback_label = weather_emoji(w_main)
-
-        o1.markdown(metric_card("Temperature", _format_number(temp_out), "C", icon="Temp", color="#fb923c"), unsafe_allow_html=True)
-        o2.markdown(metric_card("Feels Like", _format_number(feels), "C", icon="Feels", color="#fb923c"), unsafe_allow_html=True)
-        o3.markdown(metric_card("Wind", _format_number(wind), "m/s", icon="Wind"), unsafe_allow_html=True)
-
-        with o4:
-            st.markdown(f"""
-            <div style="
-                background: linear-gradient(135deg, #1e293b, #0f172a);
-                border: 1px solid #334155;
-                border-radius: 14px;
-                padding: 10px;
-                text-align: center;
-                min-height: 130px;
-                display: flex; flex-direction: column; justify-content: center;
-            ">
-                <div style="font-size:0.75rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;">Conditions</div>
-                {"<img src='" + icon_url + "' width='44' style='margin:4px auto;display:block;'/>" if icon_url else f"<div style='font-size:1rem;color:#e2e8f0;margin:12px 0;'>{fallback_label}</div>"}
-                <div style="font-size:0.9rem;color:#e2e8f0;">{w_desc or fallback_label}</div>
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        for c in [o1, o2, o3, o4]:
-            c.markdown(metric_card("--", "--", "", icon="No data", color="#64748b"), unsafe_allow_html=True)
-        error = st.session_state.get("weather_error")
-        if error:
-            st.caption(f"Outdoor weather unavailable. Middleware is unreachable and direct OpenWeatherMap failed: {error}")
+            with o4:
+                st.markdown(f"""
+                <div style="
+                    background: linear-gradient(135deg, #1e293b, #0f172a);
+                    border: 1px solid #334155;
+                    border-radius: 8px;
+                    padding: 10px;
+                    text-align: center;
+                    min-height: 130px;
+                    display: flex; flex-direction: column; justify-content: center;
+                ">
+                    <div style="font-size:0.75rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;">Conditions</div>
+                    {"<img src='" + icon_url + "' width='44' style='margin:4px auto;display:block;'/>" if icon_url else f"<div style='font-size:1rem;color:#e2e8f0;margin:12px 0;'>{fallback_label}</div>"}
+                    <div style="font-size:0.9rem;color:#e2e8f0;">{w_desc or fallback_label}</div>
+                </div>
+                """, unsafe_allow_html=True)
         else:
-            st.caption("Outdoor weather unavailable. Check OWM_API_KEY in .env.")
+            for c in [o1, o2, o3, o4]:
+                c.markdown(metric_card("--", "--", "", icon="No data", color="#64748b"), unsafe_allow_html=True)
+            error = st.session_state.get("weather_error")
+            if error:
+                st.caption(f"Outdoor weather unavailable. Middleware is unreachable and direct OpenWeatherMap failed: {error}")
+            else:
+                st.caption("Outdoor weather unavailable. Check OWM_API_KEY in .env.")
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    st.markdown("### 5-Day Forecast")
-    if forecast and isinstance(forecast, list):
-        if forecast_source == "openweathermap":
-            st.caption("Forecast loaded directly from OpenWeatherMap because the middleware was unreachable.")
-        forecast_cards(forecast)
-    else:
-        error = st.session_state.get("forecast_error")
-        if error:
-            st.info(f"Forecast unavailable. Middleware is unreachable and direct OpenWeatherMap failed: {error}")
+    with tab_forecast:
+        st.markdown("### 5-Day Forecast")
+        if forecast and isinstance(forecast, list):
+            forecast_cards(forecast)
         else:
-            st.info("Forecast unavailable. Add OWM_API_KEY to your .env file.")
+            error = st.session_state.get("forecast_error")
+            if error:
+                st.info(f"Forecast unavailable. Middleware is unreachable and direct OpenWeatherMap failed: {error}")
+            else:
+                st.info("Forecast unavailable. Add OWM_API_KEY to your .env file.")
 
-    with st.expander("Data sources"):
-        st.write({
+    with tab_diagnostics:
+        st.json({
             "indoor": sensor_source,
             "outdoor": weather_source,
             "forecast": forecast_source,

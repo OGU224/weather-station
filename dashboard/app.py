@@ -22,9 +22,21 @@ html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
 }
 
+div[data-testid="stSidebarNav"] {
+    display: none;
+}
+
 section[data-testid="stSidebar"] {
     background: #0f172a;
     border-right: 1px solid #1e293b;
+}
+
+section[data-testid="stSidebar"] > div {
+    padding-top: 0.75rem;
+}
+
+[data-testid="stSidebarUserContent"] {
+    padding: 1rem 1.25rem 1.25rem 1.25rem;
 }
 
 .main {
@@ -32,29 +44,86 @@ section[data-testid="stSidebar"] {
 }
 
 .block-container {
-    padding-top: 2rem;
+    padding-top: 1.5rem;
     padding-bottom: 2rem;
+    max-width: 1280px;
 }
 
 [data-testid="metric-container"] {
     background: #1e293b;
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 12px 16px;
     border: 1px solid #334155;
+}
+
+h1 {
+    letter-spacing: 0;
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+}
+
+h3 {
+    margin-top: 1.25rem;
+    margin-bottom: 0.75rem;
+}
+
+div[role="radiogroup"] label {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 0.35rem 0.5rem;
+    margin-bottom: 0.15rem;
+}
+
+div[role="radiogroup"] label:hover {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+.sidebar-brand {
+    padding: 0.75rem 0 1rem 0;
+}
+
+.sidebar-brand-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #f8fafc;
+    line-height: 1.2;
+}
+
+.sidebar-brand-subtitle {
+    font-size: 0.78rem;
+    color: #94a3b8;
+    margin-top: 0.25rem;
+}
+
+.sidebar-section-label {
+    color: #64748b;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 1rem 0 0.35rem 0;
+}
+
+.sidebar-footer {
+    color: #475569;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    padding-top: 1rem;
 }
 </style>
 """, unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("""
-    <div style="text-align:center; padding: 1rem 0 1.5rem 0;">
-        <div style="font-size: 2.5rem;">Cloud</div>
-        <div style="font-size: 1.1rem; font-weight: 700; color: #f1f5f9;">Weather Station</div>
-        <div style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">Cloud & Advanced Analytics</div>
+    <div class="sidebar-brand">
+        <div class="sidebar-brand-title">Weather Station</div>
+        <div class="sidebar-brand-subtitle">Cloud & Advanced Analytics</div>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("---")
+    st.markdown('<div class="sidebar-section-label">Views</div>', unsafe_allow_html=True)
 
     page = st.radio(
         "Navigation",
@@ -62,7 +131,7 @@ with st.sidebar:
         label_visibility="collapsed",
     )
 
-    st.markdown("---")
+    st.markdown('<div class="sidebar-section-label">Controls</div>', unsafe_allow_html=True)
 
     if st.button("Refresh now", use_container_width=True):
         st.rerun()
@@ -75,9 +144,8 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("""
-    <div style="position:absolute; bottom: 1.5rem; left: 0; right: 0; text-align:center;
-                font-size: 0.7rem; color: #334155;">
-        Powered by Google BigQuery<br>& OpenWeatherMap
+    <div class="sidebar-footer">
+        Data from BigQuery, OpenWeatherMap, and Gemini.
     </div>
     """, unsafe_allow_html=True)
 
