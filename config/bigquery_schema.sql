@@ -2,7 +2,7 @@
 --
 -- Table sensor_readings :
 --   id, device_id, timestamp, temperature_c, humidity_pct,
---   air_quality_index, air_quality_label, motion_detected
+--   air_quality_index, air_quality_label, co2_source, motion_detected
 --
 -- Table weather_history :
 --   id, timestamp, city, temperature_c, feels_like_c, humidity_pct,
@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS `weather-station-494408.weather_station.sensor_readin
     humidity_pct FLOAT64,
     air_quality_index INT64,
     air_quality_label STRING,
+    co2_source STRING,
     motion_detected BOOL
 );
 

@@ -38,6 +38,7 @@ def _row_to_sensor_payload(row):
         "humidity_pct": row.get("humidity_pct"),
         "air_quality_index": row.get("air_quality_index"),
         "air_quality_label": row.get("air_quality_label"),
+        "co2_source": row.get("co2_source"),
         "motion_detected": row.get("motion_detected"),
     }
 
@@ -117,13 +118,13 @@ def _format_number(value, decimals=1):
 
 
 def _aqi_label(aqi) -> tuple[str, str]:
-    """Return (label, color) for an air quality value."""
+    """Return (label, color) for a CO2 ppm value."""
     value = _number(aqi)
     if value is None:
         return "--", "#94a3b8"
-    if value < 50:
+    if value < 800:
         return "Good", "#34d399"
-    if value < 100:
+    if value < 1200:
         return "Moderate", "#fbbf24"
     return "Poor", "#f87171"
 
@@ -140,7 +141,8 @@ def render():
 
     if sensor:
         humidity = _number(sensor.get("humidity_pct"), 100)
-        aqi = _number(sensor.get("air_quality_index"), 0)
+        co2_source = sensor.get("co2_source")
+        aqi = _number(sensor.get("air_quality_index"))
         aqi_label, _ = _aqi_label(aqi)
 
         if humidity is not None and humidity < HUMIDITY_ALERT:
@@ -148,8 +150,8 @@ def render():
                 f"Low humidity alert: indoor humidity is {humidity:.0f}%, "
                 f"below the {HUMIDITY_ALERT}% threshold."
             )
-        if aqi_label == "Poor":
-            st.warning(f"Poor air quality: AQI is {aqi:.0f}. Ventilate the room.")
+        if co2_source == "sensor" and aqi_label == "Poor":
+            st.warning(f"Poor air quality: CO2 is {aqi:.0f} ppm. Ventilate the room.")
 
     tab_overview, tab_forecast, tab_diagnostics = st.tabs(["Overview", "Forecast", "Diagnostics"])
 
@@ -161,14 +163,16 @@ def render():
             temp_in = sensor.get("temperature_c")
             hum_in = sensor.get("humidity_pct")
             aqi_val = sensor.get("air_quality_index")
+            co2_source = sensor.get("co2_source")
             motion = bool(sensor.get("motion_detected", False))
-            aqi_lbl, aqi_color = _aqi_label(aqi_val)
+            aqi_lbl, aqi_color = _aqi_label(aqi_val) if co2_source == "sensor" else ("--", "#94a3b8")
             hum_numeric = _number(hum_in)
             hum_color = "#f87171" if hum_numeric is not None and hum_numeric < HUMIDITY_ALERT else "#34d399"
 
             c1.markdown(metric_card("Temperature", _format_number(temp_in), "C", icon="Temp"), unsafe_allow_html=True)
             c2.markdown(metric_card("Humidity", _format_number(hum_in, 0), "%", icon="H2O", color=hum_color), unsafe_allow_html=True)
-            c3.markdown(metric_card("Air Quality", aqi_lbl, f"({_format_number(aqi_val, 0)})", icon="AQI", color=aqi_color), unsafe_allow_html=True)
+            co2_value = f"({_format_number(aqi_val, 0)} ppm)" if co2_source == "sensor" else "not measured"
+            c3.markdown(metric_card("CO2", aqi_lbl, co2_value, icon="CO2", color=aqi_color), unsafe_allow_html=True)
             c4.markdown(metric_card("Motion", "Detected" if motion else "None", "", icon="Move", color="#fb923c" if motion else "#94a3b8"), unsafe_allow_html=True)
         else:
             for c in [c1, c2, c3, c4]:

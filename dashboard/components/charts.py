@@ -148,9 +148,9 @@ def air_quality_chart(
         return _empty_chart(title, "No air quality data available")
 
     def aqi_color(val):
-        if val < 50:
+        if val < 800:
             return COLOR_AQI_GOOD
-        if val < 100:
+        if val < 1200:
             return COLOR_AQI_MODERATE
         return COLOR_AQI_BAD
 

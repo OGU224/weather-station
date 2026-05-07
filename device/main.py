@@ -20,7 +20,7 @@ except Exception:
     wifiCfg = None
 
 # WiFi/API profiles for Flow/M5Stack uploads.
-# Change ACTIVE_PROFILE only when you move between hotspot, university, or ngrok.
+# Change ACTIVE_PROFILE when you move between hotspot and university WiFi.
 WIFI_PROFILES = {
     "hotspot": {
         "ssid": "YOUR_HOTSPOT_NAME",
@@ -42,6 +42,7 @@ WIFI_SSID = ACTIVE_WIFI["ssid"]
 WIFI_PASSWORD = ACTIVE_WIFI["password"]
 API_BASE_URL = ACTIVE_WIFI["api"]
 DEVICE_ID = "m5stack-01"
+SENSOR_MODE = "env3"  # "env3" for temperature/humidity, "co2" when the CO2 unit is plugged into PORTA.
 SEND_INTERVAL_SECONDS = 60
 WEATHER_REFRESH_SECONDS = 300
 DATA_RENDER_SECONDS = 15
@@ -63,22 +64,27 @@ PAGE_ASSISTANT = 2
 QUESTIONS = [
     (
         "Comfort now",
+        "Check room comfort",
         "Check comfort using indoor and outdoor weather. Answer in at most 18 words.",
     ),
     (
         "Ventilate?",
+        "Open window now?",
         "Should I open the window now? Answer in at most 18 words.",
     ),
     (
         "Humidity",
+        "Is humidity OK?",
         "Is the room humidity healthy today? Answer in at most 18 words.",
     ),
     (
         "Outside",
+        "Weather outside",
         "Summarize outdoor weather and forecast. Answer in at most 18 words.",
     ),
     (
         "Motion",
+        "Motion today",
         "Summarize motion activity today. Answer in at most 18 words.",
     ),
 ]
@@ -88,6 +94,7 @@ pending_action = None
 selected_question = 0
 answer_ready = False
 last_answer = "Select a question."
+last_speech = ""
 last_send_ok = False
 last_send_ms = 0
 last_weather_ms = 0
@@ -95,6 +102,7 @@ last_render_ms = 0
 latest_temp = 0.0
 latest_hum = 0.0
 latest_motion = False
+latest_co2 = None
 outdoor_temp = "--"
 outdoor_hum = "--"
 outdoor_wind = "--"
@@ -200,10 +208,10 @@ def use_forecast_text_layout():
 
 def use_assistant_text_layout():
     move_text(title, 14, 11)
-    move_text(line1, 24, 58)
-    move_text(line2, 24, 94)
-    move_text(line3, 24, 132)
-    move_text(line4, 24, 160)
+    move_text(line1, 34, 62)
+    move_text(line2, 34, 102)
+    move_text(line3, 34, 132)
+    move_text(line4, 24, 162)
     move_text(line5, 24, 184)
     move_text(line6, 24, 188)
     move_text(status_line, 10, 196)
@@ -302,10 +310,9 @@ def draw_question_frame():
     clear_texts()
     fill_rect(0, 0, 320, 240, BG)
     fill_rect(0, 0, 320, 32, 0x4338CA)
-    fill_rect(14, 48, 292, 92, PANEL_2)
-    fill_rect(14, 152, 292, 40, PANEL)
+    fill_rect(14, 48, 292, 110, PANEL_2)
     fill_rect(0, 204, 320, 36, 0x0B1220)
-    fill_rect(22, 58, 4, 72, BLUE)
+    fill_rect(22, 58, 4, 88, BLUE)
 
 
 def draw_answer_frame():
@@ -389,6 +396,12 @@ def short_lines(text, max_chars=31, max_lines=6):
     return lines[:max_lines]
 
 
+def display_value(value, suffix=""):
+    if value is None:
+        return "--"
+    return str(value) + suffix
+
+
 def fit_answer(text, max_chars=135):
     value = str(text).replace("\n", " ").strip()
     if len(value) > max_chars:
@@ -425,12 +438,14 @@ def render_sensor_page():
     weather_text = outdoor_main if outdoor_ok else outdoor_status
     set_lines(
         "INDOOR",
-        str(latest_temp) + " C   " + str(latest_hum) + "%",
+        display_value(latest_temp, " C") + "   " + display_value(latest_hum, "%"),
         "Motion: " + ("yes" if latest_motion else "no"),
         "OUTDOOR",
         str(outdoor_temp) + " C   " + str(outdoor_hum) + "%",
         str(weather_text),
     )
+    if SENSOR_MODE == "co2":
+        line2.setText("CO2 " + display_value(latest_co2, " ppm"))
     set_text_color(line1, BLUE)
     set_text_color(line2, TEXT)
     set_text_color(line3, MUTED)
@@ -462,12 +477,12 @@ def render_question_page():
     reset_text_colors()
     title.setText("Ask Assistant")
     item = QUESTIONS[selected_question]
-    lines = short_lines(item[1], 28, 2)
+    lines = short_lines(item[1], 28, 1)
     set_lines(
         item[0],
         lines[0],
-        lines[1],
-        "Ready to ask",
+        "",
+        "",
         "",
         "",
     )
@@ -475,7 +490,7 @@ def render_question_page():
     set_text_color(line2, TEXT)
     set_text_color(line3, TEXT)
     set_text_color(line4, MUTED)
-    footer.setText("A:data  B:next  C:ask")
+    footer.setText("A:data     B:next     C:ask")
 
 
 def render_forecast_page():
@@ -531,7 +546,7 @@ def connect_wifi():
     global wifi_connected
     if not WIFI_SSID or not WIFI_PASSWORD:
         wifi_connected = False
-        set_lines("WiFi config missing", "Upload device_config.py")
+        set_lines("WiFi config missing", "Check ACTIVE_PROFILE")
         return False
 
     if wifiCfg is None:
@@ -570,30 +585,59 @@ def init_pir():
         return None
 
 
-def read_sensors(env3_sensor, pir_sensor):
-    temp = 0.0
-    hum = 0.0
+def init_co2():
+    try:
+        return unit.get(unit.TVOC, unit.PORTA)
+    except Exception:
+        try:
+            return unit.get(unit.CO2, unit.PORTA)
+        except Exception:
+            return None
+
+
+def read_co2(co2_sensor):
+    if not co2_sensor:
+        return None
+
+    for attr in ["co2", "co2_ppm", "eCO2", "eco2", "CO2"]:
+        try:
+            value = getattr(co2_sensor, attr)
+            if value is not None:
+                return int(float(value))
+        except Exception:
+            pass
+    return None
+
+
+def read_sensors(env3_sensor, pir_sensor, co2_sensor):
+    temp = None
+    hum = None
+    co2 = None
     motion = False
 
-    if env3_sensor:
+    if SENSOR_MODE == "env3" and env3_sensor:
         temp = round(float(env3_sensor.temperature), 1)
         hum = round(float(env3_sensor.humidity), 1)
+
+    if SENSOR_MODE == "co2":
+        co2 = read_co2(co2_sensor)
 
     if pir_sensor:
         motion = True if pir_sensor.state == 1 else False
 
-    return temp, hum, motion
+    return temp, hum, motion, co2
 
 
-def send_data_to_api(temp, hum, motion):
+def send_data_to_api(temp, hum, motion, co2):
     payload = {
         "device_id": DEVICE_ID,
         "temperature_c": temp,
         "humidity_percent": hum,
         "motion_detected": motion,
-        "co2_ppm": 400,
-        "tvoc_ppb": 0,
+        "co2_source": "sensor" if co2 is not None else "not measured",
     }
+    if co2 is not None:
+        payload["co2_ppm"] = co2
 
     try:
         response = urequests.post(
@@ -656,12 +700,13 @@ def fetch_forecast():
 
 
 def ask_cloud_assistant():
-    global answer_ready, last_answer
+    global answer_ready, last_answer, last_speech
     try:
         answer_ready = True
         last_answer = "Asking cloud..."
+        last_speech = ""
         render_assistant_page()
-        question = QUESTIONS[selected_question][1]
+        question = QUESTIONS[selected_question][2]
         url = (
             DEVICE_SUMMARY_URL
             + "?device_id="
@@ -673,8 +718,10 @@ def ask_cloud_assistant():
         data = response.json()
         response.close()
         last_answer = fit_answer(data.get("answer", "No answer returned."))
+        last_speech = fit_answer(data.get("speech", last_answer), 80)
     except Exception:
         last_answer = "Assistant request failed."
+        last_speech = ""
     render_assistant_page()
 
 
@@ -685,10 +732,9 @@ def play_last_answer():
         render_assistant_page()
         return
 
-    # Keep Core2 speech short. Long Gemini WAV files are too large for RAM.
-    speech_text = last_answer
-    if len(speech_text) > 55:
-        speech_text = speech_text[:52] + "..."
+    speech_text = last_speech or last_answer
+    if len(speech_text) > 80:
+        speech_text = speech_text[:77] + "..."
 
     try:
         set_lines("TTS: requesting...", "", "", "", "")
@@ -782,11 +828,12 @@ def on_button_a():
 
 
 def on_button_b():
-    global answer_ready, last_answer, selected_question
+    global answer_ready, last_answer, last_speech, selected_question
     if current_page == PAGE_ASSISTANT:
         selected_question = (selected_question + 1) % len(QUESTIONS)
         answer_ready = False
         last_answer = "Select a question."
+        last_speech = ""
         render_assistant_page()
 
 
@@ -806,19 +853,20 @@ def register_buttons():
 
 
 def main_loop():
-    global latest_temp, latest_hum, latest_motion, last_send_ok, last_send_ms, last_weather_ms, last_render_ms, pending_action
+    global latest_temp, latest_hum, latest_motion, latest_co2, last_send_ok, last_send_ms, last_weather_ms, last_render_ms, pending_action
 
     render_page()
     connect_wifi()
     fetch_outdoor_weather()
     fetch_forecast()
     last_weather_ms = time.ticks_ms()
-    env3_sensor = init_env3()
+    env3_sensor = init_env3() if SENSOR_MODE == "env3" else None
+    co2_sensor = init_co2() if SENSOR_MODE == "co2" else None
     pir_sensor = init_pir()
     register_buttons()
 
     while True:
-        latest_temp, latest_hum, latest_motion = read_sensors(env3_sensor, pir_sensor)
+        latest_temp, latest_hum, latest_motion, latest_co2 = read_sensors(env3_sensor, pir_sensor, co2_sensor)
 
         now_ms = time.ticks_ms()
         if time.ticks_diff(now_ms, last_weather_ms) >= WEATHER_REFRESH_SECONDS * 1000:
@@ -827,7 +875,7 @@ def main_loop():
             last_weather_ms = now_ms
 
         if time.ticks_diff(now_ms, last_send_ms) >= SEND_INTERVAL_SECONDS * 1000:
-            ok = send_data_to_api(latest_temp, latest_hum, latest_motion)
+            ok = send_data_to_api(latest_temp, latest_hum, latest_motion, latest_co2)
             last_send_ok = ok
             last_send_ms = now_ms
 

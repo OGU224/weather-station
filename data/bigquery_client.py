@@ -25,10 +25,37 @@ class BigQueryClient:
         self.client = bigquery.Client(project=GCP_PROJECT)
         self.sensors_table = get_bq_table_id(BQ_TABLE_SENSORS)
         self.weather_table = get_bq_table_id(BQ_TABLE_WEATHER)
+        self._sensor_schema_checked = False
+
+    def _ensure_sensor_optional_columns(self):
+        if self._sensor_schema_checked:
+            return
+
+        try:
+            table = self.client.get_table(self.sensors_table)
+            field_names = {field.name for field in table.schema}
+            new_fields = []
+            if "co2_source" not in field_names:
+                new_fields.append(bigquery.SchemaField("co2_source", "STRING", mode="NULLABLE"))
+
+            if new_fields:
+                table.schema = list(table.schema) + new_fields
+                self.client.update_table(table, ["schema"])
+        except Exception as e:
+            logger.warning(f"Could not update sensor table schema: {e}")
+        finally:
+            self._sensor_schema_checked = True
 
     def insert_sensor_reading(self, reading):
         try:
-            errors = self.client.insert_rows_json(self.sensors_table, [reading.to_dict()])
+            self._ensure_sensor_optional_columns()
+            row = reading.to_dict()
+            errors = self.client.insert_rows_json(self.sensors_table, [row])
+            if errors and "co2_source" in row:
+                # Keep the reading flowing even if an older BigQuery table has not been migrated yet.
+                row_without_source = dict(row)
+                row_without_source.pop("co2_source", None)
+                errors = self.client.insert_rows_json(self.sensors_table, [row_without_source])
             if errors:
                 logger.error(f"Erreur insertion sensor: {errors}")
                 return False

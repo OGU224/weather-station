@@ -8,6 +8,31 @@ bq_client = BigQueryClient()
 
 sensor_bp = Blueprint('sensor_bp', __name__)
 
+
+def _optional_float(value):
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_int(value):
+    if value is None or value == "":
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _iso_timestamp(value):
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+
 @sensor_bp.route('/reading', methods=['POST'])
 def post_reading():
     data = request.json
@@ -26,13 +51,18 @@ def post_reading():
     else:
         timestamp = datetime.now(timezone.utc)
         
+    co2_ppm = _optional_int(data.get("co2_ppm"))
+    co2_source = data.get("co2_source") or ("sensor" if co2_ppm is not None else "not measured")
+
     reading = SensorReading(
         timestamp=timestamp,
         device_id=device_id,
-        temperature_c=data.get("temperature_c", 0.0),
-        humidity_pct=data.get("humidity_percent", 0.0),
-        air_quality_index=data.get("co2_ppm", 400), # Mapping CO2 to AQI for now
-        motion_detected=data.get("motion_detected", False)
+        temperature_c=_optional_float(data.get("temperature_c")),
+        humidity_pct=_optional_float(data.get("humidity_percent")),
+        air_quality_index=co2_ppm,
+        air_quality_label=data.get("air_quality_label", ""),
+        co2_source=co2_source,
+        motion_detected=bool(data.get("motion_detected", False))
     )
     
     success = bq_client.insert_sensor_reading(reading)
@@ -48,12 +78,13 @@ def get_latest():
     if latest:
         ts = latest.get("timestamp")
         return jsonify({
-            "timestamp": ts.isoformat() if ts else None,
+            "timestamp": _iso_timestamp(ts) if ts else None,
             "device_id": latest.get("device_id"),
             "temperature_c": latest.get("temperature_c"),
             "humidity_pct": latest.get("humidity_pct"),
             "air_quality_index": latest.get("air_quality_index"),
             "air_quality_label": latest.get("air_quality_label"),
+            "co2_source": latest.get("co2_source"),
             "motion_detected": latest.get("motion_detected"),
         }), 200
     return jsonify({"message": "No data found"}), 404
@@ -71,11 +102,13 @@ def get_history():
     for row in history:
         # Format mapping back to user's expected JSON format if necessary
         results.append({
-            "timestamp": row.get("timestamp").isoformat() if row.get("timestamp") else None,
+            "timestamp": _iso_timestamp(row.get("timestamp")) if row.get("timestamp") else None,
             "device_id": row.get("device_id"),
             "temperature_c": row.get("temperature_c"),
             "humidity_pct": row.get("humidity_pct"),
             "air_quality_index": row.get("air_quality_index"),
+            "air_quality_label": row.get("air_quality_label"),
+            "co2_source": row.get("co2_source"),
             "motion_detected": row.get("motion_detected")
         })
     return jsonify(results), 200

@@ -117,6 +117,7 @@ def _sensor_row(row):
         "humidity_pct": row.get("humidity_pct"),
         "air_quality_index": row.get("air_quality_index"),
         "air_quality_label": row.get("air_quality_label"),
+        "co2_source": row.get("co2_source"),
         "motion_detected": row.get("motion_detected"),
     }
 
@@ -133,7 +134,11 @@ def _stats(rows):
 
     temps = [float(r["temperature_c"]) for r in rows if r.get("temperature_c") is not None]
     hums = [float(r["humidity_pct"]) for r in rows if r.get("humidity_pct") is not None]
-    aqis = [float(r["air_quality_index"]) for r in rows if r.get("air_quality_index") is not None]
+    aqis = [
+        float(r["air_quality_index"])
+        for r in rows
+        if r.get("air_quality_index") is not None and r.get("co2_source") == "sensor"
+    ]
     motion_events = sum(1 for r in rows if r.get("motion_detected"))
 
     def summarize(values):
@@ -156,6 +161,16 @@ def _stats(rows):
     }
 
 
+def _latest_non_null(rows, field, source_field=None, source_value=None):
+    for row in reversed(rows or []):
+        if row.get(field) is None:
+            continue
+        if source_field and row.get(source_field) != source_value:
+            continue
+        return row
+    return None
+
+
 def build_context(device_id=None, hours=24):
     """Return recent sensor/weather data and summary statistics for the assistant."""
     bq = BigQueryClient()
@@ -165,10 +180,16 @@ def build_context(device_id=None, hours=24):
     history = [row for row in history if row]
     current_weather = weather_service.get_current_weather()
     forecast = weather_service.get_forecast(days=3)
+    latest_temperature = _latest_non_null(history, "temperature_c")
+    latest_humidity = _latest_non_null(history, "humidity_pct")
+    latest_co2 = _latest_non_null(history, "air_quality_index", "co2_source", "sensor")
     return {
         "device_id": device_id or "all devices",
         "hours": hours,
         "latest": latest,
+        "latest_temperature": latest_temperature,
+        "latest_humidity": latest_humidity,
+        "latest_co2": latest_co2,
         "stats": _stats(history),
         "recent_rows": history[-20:],
         "current_weather": current_weather.to_dict() if current_weather else None,
@@ -236,6 +257,24 @@ def fallback_answer(question, context):
     latest = context.get("latest")
     stats = context.get("stats", {})
     q = question.lower()
+    weather = context.get("current_weather")
+    forecast = context.get("forecast") or []
+
+    if "outside" in q or "outdoor" in q or "weather" in q or "forecast" in q:
+        if not weather:
+            return "Outdoor weather is unavailable right now."
+        temp = weather.get("temperature_c")
+        desc = weather.get("weather_description") or weather.get("weather_main", "weather")
+        city = weather.get("city") or "outside"
+        wind = weather.get("wind_speed_ms")
+        forecast_note = ""
+        if forecast:
+            next_day = forecast[0]
+            forecast_note = (
+                f" Forecast: {next_day.get('weather_main')} "
+                f"{next_day.get('temp_min')} to {next_day.get('temp_max')} C."
+            )
+        return f"Outside in {city}: {temp} C, {desc}, wind {wind} m/s.{forecast_note}"
 
     if not latest and not stats.get("count"):
         return "I do not have recent sensor data for that question yet. Let the Core2 collect a few readings first."
@@ -250,7 +289,7 @@ def fallback_answer(question, context):
         if hum_avg is not None:
             parts.append(f"average humidity was {hum_avg}%")
         if aqi_avg is not None:
-            parts.append(f"average air quality value was {aqi_avg}")
+            parts.append(f"average CO2 was {aqi_avg} ppm")
         return "Over the selected period, the " + ", and the ".join(parts) + "."
 
     if "motion" in q:
@@ -258,7 +297,10 @@ def fallback_answer(question, context):
 
     if "humidity" in q:
         hum = stats.get("humidity", {})
-        latest_hum = latest.get("humidity_pct") if latest else None
+        latest_humidity = context.get("latest_humidity") or {}
+        latest_hum = latest_humidity.get("humidity_pct")
+        if latest_hum is None:
+            return "No recent humidity reading is available in this period."
         return (
             f"The latest humidity is {latest_hum}%. "
             f"Over the last {context.get('hours')} hours, humidity ranged from "
@@ -267,27 +309,36 @@ def fallback_answer(question, context):
 
     if "temperature" in q or "temp" in q:
         temp = stats.get("temperature", {})
-        latest_temp = latest.get("temperature_c") if latest else None
+        latest_temperature = context.get("latest_temperature") or {}
+        latest_temp = latest_temperature.get("temperature_c")
+        if latest_temp is None:
+            return "No recent temperature reading is available in this period."
         return (
             f"The latest temperature is {latest_temp} C. "
             f"Over the last {context.get('hours')} hours, temperature ranged from "
             f"{temp.get('min')} C to {temp.get('max')} C, with an average of {temp.get('avg')} C."
         )
 
-    if "air" in q or "aqi" in q or "quality" in q:
+    if "air" in q or "aqi" in q or "quality" in q or "co2" in q:
         aqi = stats.get("air_quality", {})
-        latest_aqi = latest.get("air_quality_index") if latest else None
+        latest_co2 = context.get("latest_co2") or {}
+        latest_aqi = latest_co2.get("air_quality_index")
+        if latest_aqi is None:
+            return "No real CO2 reading is available in this period."
         return (
-            f"The latest air quality value is {latest_aqi}. "
+            f"The latest CO2 reading is {latest_aqi} ppm. "
             f"Over the last {context.get('hours')} hours, it ranged from "
-            f"{aqi.get('min')} to {aqi.get('max')}, with an average of {aqi.get('avg')}."
+            f"{aqi.get('min')} to {aqi.get('max')} ppm, with an average of {aqi.get('avg')} ppm."
         )
 
     if latest:
+        latest_temperature = context.get("latest_temperature") or {}
+        latest_humidity = context.get("latest_humidity") or {}
+        latest_co2 = context.get("latest_co2") or {}
         return (
-            f"Latest reading for {latest.get('device_id')}: "
-            f"{latest.get('temperature_c')} C, {latest.get('humidity_pct')}% humidity, "
-            f"air quality {latest.get('air_quality_index')}, "
+            f"Recent readings for {context.get('device_id')}: "
+            f"{latest_temperature.get('temperature_c')} C, {latest_humidity.get('humidity_pct')}% humidity, "
+            f"CO2 {latest_co2.get('air_quality_index') or 'not measured'}, "
             f"motion {'detected' if latest.get('motion_detected') else 'not detected'}."
         )
 
@@ -309,7 +360,6 @@ def generate_response(question, context):
     answer = fallback_answer(question, context)
     if errors:
         source = "local-fallback-after-error"
-        answer = f"{answer} LLM fallback details: {'; '.join(errors)}"
     return answer, source
 
 

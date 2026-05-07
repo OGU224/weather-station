@@ -44,6 +44,8 @@ def _rows_to_sensor_payload(rows):
             "temperature_c": row.get("temperature_c"),
             "humidity_pct": row.get("humidity_pct"),
             "air_quality_index": row.get("air_quality_index"),
+            "air_quality_label": row.get("air_quality_label"),
+            "co2_source": row.get("co2_source"),
             "motion_detected": row.get("motion_detected"),
         })
     return results
@@ -186,10 +188,13 @@ def _comfort_score(df: pd.DataFrame) -> tuple[int, str]:
             notes.append("humidity rose above 60%")
 
     if "air_quality_index" in df.columns and df["air_quality_index"].notna().any():
-        poor_air_share = (df["air_quality_index"] >= 100).mean()
+        co2_df = df
+        if "co2_source" in df.columns:
+            co2_df = df[df["co2_source"] == "sensor"]
+        poor_air_share = (co2_df["air_quality_index"] >= 1200).mean() if not co2_df.empty else 0
         if poor_air_share > 0:
             score -= min(30, int(poor_air_share * 35))
-            notes.append("air quality readings were elevated")
+            notes.append("CO2 readings were elevated")
 
     score = max(0, min(100, score))
     if score >= 80:
@@ -330,8 +335,12 @@ def render():
                 use_container_width=True,
             )
         with tab_air:
+            co2_df = sensor_df
+            if "co2_source" in sensor_df.columns:
+                co2_df = sensor_df[sensor_df["co2_source"] == "sensor"]
+            st.caption("CO2 chart uses only rows collected from the CO2 sensor, not old placeholder values.")
             st.plotly_chart(
-                air_quality_chart(sensor_df, col="air_quality_index", title="Air Quality Index"),
+                air_quality_chart(co2_df, col="air_quality_index", title="CO2 From Sensor (ppm)"),
                 use_container_width=True,
             )
 
@@ -398,6 +407,8 @@ def render():
                 "temperature_c",
                 "humidity_pct",
                 "air_quality_index",
+                "air_quality_label",
+                "co2_source",
                 "motion_detected",
             ]
             if c in sensor_df.columns

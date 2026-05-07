@@ -5,24 +5,28 @@ Modèles de données.
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 import uuid
+from typing import Optional
 
 
 @dataclass
 class SensorReading:
-    temperature_c: float
-    humidity_pct: float
-    air_quality_index: int
-    motion_detected: bool
+    motion_detected: bool = False
+    temperature_c: Optional[float] = None
+    humidity_pct: Optional[float] = None
+    air_quality_index: Optional[int] = None
     device_id: str = "m5stack-01"
     air_quality_label: str = ""
+    co2_source: str = ""
     timestamp: datetime = field(default_factory=datetime.utcnow)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def __post_init__(self):
-        if not self.air_quality_label:
-            if self.air_quality_index < 50:
+        if self.air_quality_index is None:
+            self.air_quality_label = self.air_quality_label or "not measured"
+        elif not self.air_quality_label:
+            if self.air_quality_index < 800:
                 self.air_quality_label = "good"
-            elif self.air_quality_index < 100:
+            elif self.air_quality_index < 1200:
                 self.air_quality_label = "moderate"
             else:
                 self.air_quality_label = "bad"
