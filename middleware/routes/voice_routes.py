@@ -5,7 +5,13 @@ import time
 
 from flask import Blueprint, jsonify, request, send_file
 
-from services.voice_service import answer_question, fallback_answer, synthesize_speech, transcribe_speech
+from services.voice_service import (
+    answer_question,
+    deterministic_answer,
+    fallback_answer,
+    synthesize_speech,
+    transcribe_speech,
+)
 
 voice_bp = Blueprint("voice_bp", __name__)
 
@@ -210,10 +216,11 @@ def device_audio_question():
             hours=hours,
         )
         answer = answer_result.get("answer", "")
-        q = transcript.lower()
         broken_answer = len(answer.strip()) < 24 or answer.strip().endswith((",", ":", ";"))
-        deterministic_question = any(word in q for word in ["outside", "outdoor", "weather", "forecast"])
-        if deterministic_question or broken_answer:
+        stable_answer = deterministic_answer(transcript, answer_result.get("context", {}))
+        if stable_answer:
+            answer = stable_answer
+        elif broken_answer:
             answer = fallback_answer(transcript, answer_result.get("context", {}))
         speech = _speech_summary(answer, question=transcript, max_chars=145)
         return jsonify({
@@ -268,10 +275,11 @@ def device_summary():
     try:
         result = answer_question(question=question, device_id=device_id, hours=hours)
         answer = result.get("answer", "")
-        q = question.lower()
         broken_answer = len(answer.strip()) < 24 or answer.strip().endswith((",", ":", ";"))
-        deterministic_question = any(word in q for word in ["outside", "outdoor", "weather", "forecast"])
-        if deterministic_question or broken_answer:
+        stable_answer = deterministic_answer(question, result.get("context", {}))
+        if stable_answer:
+            answer = stable_answer
+        elif broken_answer:
             answer = fallback_answer(question, result.get("context", {}))
         speech = _speech_summary(answer, question=question)
         return jsonify({

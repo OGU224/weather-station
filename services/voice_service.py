@@ -2,6 +2,7 @@
 
 import os
 import base64
+import re
 from io import BytesIO
 from datetime import datetime
 import wave
@@ -30,6 +31,36 @@ GEMINI_TTS_GAIN = float(os.getenv("GEMINI_TTS_GAIN", "3.0"))
 GOOGLE_TTS_GAIN = float(os.getenv("GOOGLE_TTS_GAIN", "2.0"))
 WINDOWS_TTS_GAIN = float(os.getenv("WINDOWS_TTS_GAIN", "1.8"))
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "12"))
+
+
+INTENT_KEYWORDS = {
+    "rain_forecast": [
+        "rain", "raining", "rainy", "umbrella", "drizzle", "storm", "wet",
+        "pluie", "pleut", "pleuvoir", "parapluie", "averse", "orage",
+    ],
+    "outfit": [
+        "wear", "clothes", "clothing", "dress", "jacket", "coat", "sunglasses",
+        "sunscreen", "outfit", "put on", "bring",
+        "porter", "mettre", "habiller", "veste", "manteau", "lunettes", "creme",
+    ],
+    "outdoor_weather": [
+        "outside", "outdoor", "weather", "forecast", "temperature outside",
+        "meteo", "dehors", "exterieur", "temps", "prevision", "temperature dehors",
+    ],
+    "ventilation": [
+        "window", "ventilate", "ventilation", "air out", "open", "close",
+        "fenetre", "aerer", "aeration", "ouvrir", "fermer",
+    ],
+    "room_health": [
+        "healthy", "comfort", "comfortable", "room", "indoor", "inside", "home",
+        "sain", "confort", "chambre", "piece", "interieur", "maison",
+    ],
+    "humidity": ["humidity", "humid", "dry", "moisture", "humidite", "humide", "sec"],
+    "temperature": ["temperature", "temp", "hot", "cold", "warm", "chaud", "froid"],
+    "co2": ["co2", "carbon", "air quality", "quality", "air", "ppm", "qualite"],
+    "motion": ["motion", "movement", "presence", "detected", "mouvement", "presence"],
+    "average": ["average", "avg", "mean", "trend", "history", "moyenne", "tendance", "historique"],
+}
 
 
 def _amplify_pcm(pcm_data, gain, target_peak=28000):
@@ -417,6 +448,206 @@ Data context:
 """.strip()
 
 
+def normalize_question(question):
+    """Normalize STT text so intent matching survives small recognition changes."""
+    text = str(question or "").lower()
+    replacements = {
+        "é": "e", "è": "e", "ê": "e", "ë": "e",
+        "à": "a", "â": "a", "ä": "a",
+        "ù": "u", "û": "u", "ü": "u",
+        "ô": "o", "ö": "o",
+        "î": "i", "ï": "i",
+        "ç": "c",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    text = re.sub(r"[^a-z0-9% ]+", " ", text)
+    return " ".join(text.split())
+
+
+def detect_intent(question):
+    q = normalize_question(question)
+    scores = {}
+    for intent, keywords in INTENT_KEYWORDS.items():
+        score = 0
+        for keyword in keywords:
+            key = normalize_question(keyword)
+            if key and key in q:
+                score += 2 if " " in key else 1
+        if score:
+            scores[intent] = score
+
+    if not scores:
+        return "general"
+
+    if scores.get("rain_forecast"):
+        return "rain_forecast"
+    if scores.get("outfit"):
+        return "outfit"
+    if scores.get("ventilation"):
+        return "ventilation"
+    if scores.get("co2"):
+        return "co2"
+    if scores.get("humidity") and scores.get("room_health"):
+        return "room_health"
+    if scores.get("room_health"):
+        return "room_health"
+    if scores.get("humidity"):
+        return "humidity"
+    if scores.get("temperature") and not scores.get("outdoor_weather"):
+        return "temperature"
+    if scores.get("motion"):
+        return "motion"
+    if scores.get("average"):
+        return "average"
+    if scores.get("outdoor_weather") or scores.get("temperature"):
+        return "outdoor_weather"
+    return max(scores, key=scores.get)
+
+
+def _forecast_rain_answer(forecast):
+    rainy_days = []
+    for day in forecast or []:
+        main = str(day.get("weather_main") or day.get("weather_description") or "")
+        if any(word in main.lower() for word in ["rain", "drizzle", "storm"]):
+            date = str(day.get("date") or "")
+            label = date[5:10] if len(date) >= 10 else "one forecast day"
+            rainy_days.append(label)
+
+    if rainy_days:
+        return "Yes. Rain is expected on " + ", ".join(rainy_days[:3]) + ", so bring an umbrella."
+    if forecast:
+        return "No rain appears in the available forecast. It looks mostly dry."
+    return "I do not have forecast data yet, so I cannot confirm rain."
+
+
+def _outfit_answer(weather):
+    if not weather:
+        return "Outdoor weather is unavailable, so take a light layer just in case."
+    desc = str(weather.get("weather_main") or weather.get("weather_description") or "").lower()
+    temp = weather.get("temperature_c")
+    try:
+        temp_num = float(temp)
+    except (TypeError, ValueError):
+        temp_num = None
+
+    if any(word in desc for word in ["rain", "drizzle", "storm"]):
+        return f"It is {temp} C outside with rain risk, so take an umbrella or rain jacket."
+    if temp_num is not None and temp_num >= 24:
+        return f"It is {temp} C outside, so wear light clothes, sunglasses, and sunscreen."
+    if temp_num is not None and temp_num <= 10:
+        return f"It is {temp} C outside, so wear a warm jacket or layers."
+    if temp_num is not None and temp_num <= 16:
+        return f"It is {temp} C outside, so a light jacket or layers are a good idea."
+    return f"It is {temp} C outside with {desc or 'stable weather'}, so dress comfortably."
+
+
+def _ventilation_answer(context):
+    weather = context.get("current_weather")
+    latest_humidity = context.get("latest_humidity") or {}
+    hum = latest_humidity.get("humidity_pct")
+    desc = str((weather or {}).get("weather_main") or "").lower()
+
+    if hum is None:
+        return "I need a recent indoor humidity reading before advising on ventilation."
+    try:
+        hum_num = float(hum)
+    except (TypeError, ValueError):
+        hum_num = None
+
+    if hum_num is not None and hum_num > 65:
+        if "rain" in desc:
+            return "Ventilate briefly if needed, but close it soon because it is raining outside."
+        return "Yes, open the window for a few minutes because indoor humidity is high."
+    if hum_num is not None and hum_num < 40:
+        return "No. The room is already dry, so opening the window may make comfort worse."
+    return "Ventilation is optional right now; indoor humidity looks comfortable."
+
+
+def _room_health_answer(context):
+    latest_temperature = context.get("latest_temperature") or {}
+    latest_humidity = context.get("latest_humidity") or {}
+    latest_co2 = context.get("latest_co2") or {}
+    temp = latest_temperature.get("temperature_c")
+    hum = latest_humidity.get("humidity_pct")
+    co2 = latest_co2.get("air_quality_index")
+
+    issues = []
+    try:
+        if hum is not None and float(hum) < 40:
+            issues.append(f"humidity is low at {hum}%")
+        elif hum is not None and float(hum) > 65:
+            issues.append(f"humidity is high at {hum}%")
+    except (TypeError, ValueError):
+        pass
+    try:
+        if temp is not None and float(temp) < 18:
+            issues.append(f"temperature is cool at {temp} C")
+        elif temp is not None and float(temp) > 26:
+            issues.append(f"temperature is warm at {temp} C")
+    except (TypeError, ValueError):
+        pass
+    try:
+        if co2 is not None and float(co2) > 1000:
+            issues.append(f"CO2 is high at {co2} ppm")
+    except (TypeError, ValueError):
+        pass
+
+    if issues:
+        return "Room needs attention: " + ", ".join(issues[:2]) + "."
+    if temp is not None or hum is not None or co2 is not None:
+        return f"Room looks healthy: {temp or 'no temp'} C, {hum or 'no humidity'}% humidity, CO2 {co2 or 'not measured'}."
+    return "I need recent indoor readings before judging room health."
+
+
+def deterministic_answer(question, context):
+    """Answer common dashboard/Core2 intents with stable analytics logic."""
+    intent = detect_intent(question)
+    weather = context.get("current_weather")
+    forecast = context.get("forecast") or []
+    stats = context.get("stats", {})
+
+    if intent == "rain_forecast":
+        return _forecast_rain_answer(forecast)
+    if intent == "outfit":
+        return _outfit_answer(weather)
+    if intent == "ventilation":
+        return _ventilation_answer(context)
+    if intent == "room_health":
+        return _room_health_answer(context)
+    if intent == "outdoor_weather":
+        if not weather:
+            return "Outdoor weather is unavailable right now."
+        temp = weather.get("temperature_c")
+        desc = weather.get("weather_description") or weather.get("weather_main", "weather")
+        city = weather.get("city") or "outside"
+        wind = weather.get("wind_speed_ms")
+        return f"Outside in {city}: {temp} C, {desc}, wind {wind} m/s."
+    if intent == "humidity":
+        latest_humidity = context.get("latest_humidity") or {}
+        latest_hum = latest_humidity.get("humidity_pct")
+        if latest_hum is None:
+            return "No recent humidity reading is available."
+        return f"The latest indoor humidity is {latest_hum}%."
+    if intent == "temperature":
+        latest_temperature = context.get("latest_temperature") or {}
+        latest_temp = latest_temperature.get("temperature_c")
+        if latest_temp is None:
+            return "No recent indoor temperature reading is available."
+        return f"The latest indoor temperature is {latest_temp} C."
+    if intent == "co2":
+        latest_co2 = context.get("latest_co2") or {}
+        latest_aqi = latest_co2.get("air_quality_index")
+        if latest_aqi is None:
+            return "No real CO2 reading is available in this period."
+        return f"The latest CO2 reading is {latest_aqi} ppm."
+    if intent == "motion":
+        return f"Motion was detected {stats.get('motion_events', 0)} time(s) over the last {context.get('hours')} hours."
+    if intent == "average":
+        return fallback_answer(question, context)
+    return None
+
+
 def _generate_with_gemini(question, context):
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
@@ -466,6 +697,10 @@ def fallback_answer(question, context):
     q = question.lower()
     weather = context.get("current_weather")
     forecast = context.get("forecast") or []
+
+    deterministic = deterministic_answer(question, context)
+    if deterministic:
+        return deterministic
 
     if "outside" in q or "outdoor" in q or "weather" in q or "forecast" in q:
         if not weather:
@@ -554,6 +789,10 @@ def fallback_answer(question, context):
 
 def generate_response(question, context):
     """Generate an assistant answer using Gemini, with local analytics fallback."""
+    deterministic = deterministic_answer(question, context)
+    if deterministic:
+        return deterministic, "local-intent"
+
     errors = []
 
     try:

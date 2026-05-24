@@ -11,6 +11,7 @@ Buttons:
 
 import time
 import ujson
+import sys
 
 try:
     import requests
@@ -35,6 +36,30 @@ try:
     from unit import ENVUnit
 except Exception:
     ENVUnit = None
+
+for _path in ("/flash", "/flash/ui", "ui", "device/ui"):
+    try:
+        if _path not in sys.path:
+            sys.path.append(_path)
+    except Exception:
+        pass
+
+try:
+    from components import init as ui_init, clear_screen
+    from companion import Buddy, CHARACTERS
+    from screens import (
+        render as render_undertale,
+        render_busy_screen,
+        PAGE_DATA,
+        PAGE_FORECAST,
+        PAGE_ASSISTANT,
+        PAGE_WIFI,
+        PAGE_CHARACTER,
+        PAGE_COUNT,
+    )
+    UNDERTALE_UI = True
+except Exception:
+    UNDERTALE_UI = False
 
 # ---------------------------------------------------------------------------
 # Local setup. Keep real passwords/IPs in your UIFlow copy or main_uiflow2_local.py.
@@ -107,24 +132,24 @@ PAGE_ASSISTANT = 2
 
 QUESTIONS = [
     (
-        "Comfort",
-        "Room comfort now",
-        "Check comfort using indoor and outdoor weather. Answer in at most 18 words.",
+        "Rain",
+        "Rain this week?",
+        "Will it rain in the forecast period? Use the forecast data. Answer in at most 18 words.",
+    ),
+    (
+        "Outfit",
+        "What should I wear?",
+        "Give clothing advice for today using outdoor weather. Answer in at most 18 words.",
+    ),
+    (
+        "Room",
+        "Is my room healthy?",
+        "Check room health using indoor temperature, humidity, and CO2 if available. Answer in at most 18 words.",
     ),
     (
         "Ventilate",
         "Open the window?",
-        "Should I open the window now? Answer in at most 18 words.",
-    ),
-    (
-        "Humidity",
-        "Is humidity OK?",
-        "Is the room humidity healthy today? Answer in at most 18 words.",
-    ),
-    (
-        "Outside",
-        "Weather outside",
-        "Summarize outdoor weather and forecast. Answer in at most 18 words.",
+        "Should I open the window now using indoor humidity and outdoor weather? Answer in at most 18 words.",
     ),
     (
         "Voice",
@@ -609,19 +634,171 @@ def render(full=True):
 
 
 # ---------------------------------------------------------------------------
+# Undertale Core2 UI integration.
+#
+# The original labels above stay as a fallback for UIFlow, but when the
+# imported UI package is available we override the render functions only.
+# Sensor, STT, TTS, morning routine and Spotify logic remain the local version.
+# ---------------------------------------------------------------------------
+
+if UNDERTALE_UI:
+    try:
+        ui_init()
+        clear_screen()
+    except Exception:
+        pass
+
+    buddy = Buddy()
+    wifi_profile_keys = []
+    for _key in WIFI_PROFILES:
+        wifi_profile_keys.append(_key)
+    wifi_profile_index = 0
+    wifi_status = ""
+
+    def _ui_wifi_profiles():
+        profiles = []
+        for key in wifi_profile_keys:
+            data = WIFI_PROFILES[key]
+            profiles.append({
+                "name": key,
+                "ssid": data.get("ssid", ""),
+                "pwd": data.get("password", ""),
+            })
+        return profiles
+
+    def _ui_answer_text():
+        if answer_ready:
+            return last_answer
+        if last_transcript:
+            return "Heard: " + last_transcript
+        return last_answer
+
+    def _ui_state():
+        return {
+            "temp": latest_temp,
+            "hum": latest_hum,
+            "send_ok": send_ok,
+            "o_temp": outdoor_temp,
+            "o_hum": outdoor_hum,
+            "o_main": outdoor_main,
+            "o_icon": "",
+            "o_ok": outdoor_ok,
+            "fcast": forecast_days,
+            "tstr": "",
+            "qi": question_index,
+            "ans_ok": answer_ready,
+            "ans_txt": _ui_answer_text(),
+            "wifi_profiles": _ui_wifi_profiles(),
+            "wifi_idx": wifi_profile_index,
+            "wifi_status": wifi_status,
+            "char_idx": buddy.char_idx,
+        }
+
+    def render_data(full=True):
+        render_undertale(PAGE_DATA, _ui_state(), buddy, full)
+
+    def render_forecast(full=True):
+        render_undertale(PAGE_FORECAST, _ui_state(), buddy, full)
+
+    def render_assistant(full=True):
+        render_undertale(PAGE_ASSISTANT, _ui_state(), buddy, full)
+
+    def render_wifi(full=True):
+        render_undertale(PAGE_WIFI, _ui_state(), buddy, full)
+
+    def render_character(full=True):
+        render_undertale(PAGE_CHARACTER, _ui_state(), buddy, full)
+
+    def render(full=True):
+        if page == PAGE_DATA:
+            render_data(full)
+        elif page == PAGE_FORECAST:
+            render_forecast(full)
+        elif page == PAGE_ASSISTANT:
+            render_assistant(full)
+        elif page == PAGE_WIFI:
+            render_wifi(full)
+        elif page == PAGE_CHARACTER:
+            render_character(full)
+
+    def apply_wifi_profile(index):
+        global WIFI_SSID, WIFI_PASSWORD, API_BASE_URL, API_BASE
+        global SENSOR_URL, WEATHER_URL, FORECAST_URL, ASK_URL, DEVICE_ASK_URL
+        global DEVICE_TTS_URL, MUSIC_MOOD_URL, ACTIVE_PROFILE, ACTIVE_WIFI
+
+        key = wifi_profile_keys[index]
+        ACTIVE_PROFILE = key
+        ACTIVE_WIFI = WIFI_PROFILES[key]
+        WIFI_SSID = ACTIVE_WIFI["ssid"]
+        WIFI_PASSWORD = ACTIVE_WIFI["password"]
+        API_BASE_URL = ACTIVE_WIFI["api"]
+        API_BASE = API_BASE_URL.rstrip("/")
+        SENSOR_URL = API_BASE + "/api/sensors/reading"
+        WEATHER_URL = API_BASE + "/api/weather/current"
+        FORECAST_URL = API_BASE + "/api/weather/forecast?days=3"
+        ASK_URL = API_BASE + "/api/voice/ask"
+        DEVICE_ASK_URL = API_BASE + "/api/voice/device-audio-question"
+        DEVICE_TTS_URL = API_BASE + "/api/voice/device-tts"
+        MUSIC_MOOD_URL = API_BASE + "/api/music/play-mood"
+
+    def choose_wifi_on_boot():
+        global wifi_profile_index, wifi_status
+        try:
+            for idx, key in enumerate(wifi_profile_keys):
+                if key == ACTIVE_PROFILE:
+                    wifi_profile_index = idx
+                    break
+        except Exception:
+            pass
+
+        wifi_status = "B: choose  C: connect"
+        render_wifi(True)
+        start = now_ms()
+        b_down = False
+        c_down = False
+        while elapsed_ms(start) < 8000:
+            M5.update()
+            try:
+                current_b = button_is_down(BtnB)
+                current_c = button_is_down(BtnC)
+            except Exception:
+                current_b = False
+                current_c = False
+
+            if current_b and not b_down:
+                wifi_profile_index = (wifi_profile_index + 1) % len(wifi_profile_keys)
+                wifi_status = "B: choose  C: connect"
+                render_wifi(True)
+                start = now_ms()
+                time.sleep_ms(250)
+            elif current_c and not c_down:
+                break
+
+            b_down = current_b
+            c_down = current_c
+            time.sleep_ms(50)
+        apply_wifi_profile(wifi_profile_index)
+
+
+# ---------------------------------------------------------------------------
 # Connectivity and sensors
 # ---------------------------------------------------------------------------
 
 def connect_wifi():
-    global wifi_ok, last_error
+    global wifi_ok, last_error, wifi_status
     draw_base("WiFi", HEADER)
     set_label(line1, "Connecting...", BLUE)
     set_label(line2, WIFI_SSID, WHITE)
     set_label(line3, "Resetting WiFi", MUTED)
+    if UNDERTALE_UI:
+        wifi_status = "Connecting to " + WIFI_SSID
+        render_wifi(True)
 
     if network is None:
         wifi_ok = False
         last_error = "network missing"
+        if UNDERTALE_UI:
+            wifi_status = "Network module missing"
         render(True)
         return False
 
@@ -641,17 +818,25 @@ def connect_wifi():
                 wifi_ok = True
                 last_error = ""
                 try:
-                    set_label(line3, "IP " + str(wlan.ifconfig()[0]), GREEN)
+                    if UNDERTALE_UI:
+                        wifi_status = "Connected"
+                        render_wifi(True)
+                    set_label(line3, "Connected", GREEN)
                     time.sleep(1)
                 except Exception:
                     pass
                 return True
             set_label(line3, "Waiting " + str(_ + 1) + "/30", MUTED)
+            if UNDERTALE_UI:
+                wifi_status = "Waiting " + str(_ + 1) + "/30"
+                render_wifi(False)
             time.sleep(1)
     except Exception as exc:
         last_error = "WiFi " + str(exc)[:20]
 
     wifi_ok = False
+    if UNDERTALE_UI:
+        wifi_status = "Failed: " + trim(last_error, 20)
     set_label(line3, "WiFi failed", RED)
     set_label(line4, trim(last_error, 28), RED)
     time.sleep(2)
@@ -757,6 +942,50 @@ def fetch_forecast():
         pass
 
 
+def local_preset_answer(question):
+    q = str(question or "").lower()
+
+    if "rain in the forecast" in q:
+        rainy_days = []
+        for item in forecast_days:
+            main = str(item.get("weather_main", ""))
+            if "rain" in main.lower() or "drizzle" in main.lower() or "storm" in main.lower():
+                date = str(item.get("date", ""))
+                if len(date) >= 10:
+                    date = date[5:10]
+                rainy_days.append(date or main)
+        if rainy_days:
+            return "Yes. Rain is expected on " + ", ".join(rainy_days[:3]) + ". Bring an umbrella."
+        if forecast_days:
+            return "No rain in the available forecast. It looks mostly dry."
+        return "I do not have forecast data yet."
+
+    if "clothing advice" in q:
+        if outdoor_ok:
+            return local_outfit_advice()
+        return "Outdoor weather is unavailable. Take a light layer just in case."
+
+    if "room health" in q:
+        if latest_hum is not None and latest_hum < 40:
+            return "Room is too dry at " + str(latest_hum) + "%. Add humidity if possible."
+        if latest_hum is not None and latest_hum > 65:
+            return "Room is humid at " + str(latest_hum) + "%. Ventilate for a few minutes."
+        if latest_temp is not None and latest_hum is not None:
+            return "Room looks healthy: " + str(latest_temp) + "C and " + str(latest_hum) + "% humidity."
+        return "I need indoor sensor data to judge room health."
+
+    if "open the window" in q:
+        if latest_hum is not None and latest_hum > 65:
+            return "Yes, ventilate briefly. Indoor humidity is high."
+        if outdoor_ok and "rain" in str(outdoor_main).lower():
+            return "Better keep it closed for now. It is raining outside."
+        if latest_hum is not None and latest_hum < 40:
+            return "No. The room is already dry, so ventilation may make it worse."
+        return "Optional. The room looks comfortable right now."
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Assistant, STT, TTS
 # ---------------------------------------------------------------------------
@@ -766,8 +995,16 @@ def ask_text(question):
     answer_ready = False
     last_answer = "Thinking..."
     render_assistant(True)
-    set_label(line2, "Contacting assistant...", YELLOW)
-    set_label(line3, "Please wait", MUTED)
+    if not UNDERTALE_UI:
+        set_label(line2, "Contacting assistant...", YELLOW)
+        set_label(line3, "Please wait", MUTED)
+    preset = local_preset_answer(question)
+    if preset:
+        last_answer = trim_sentence(preset, 160)
+        answer_ready = True
+        last_error = ""
+        render_assistant(True)
+        return
     try:
         response = requests.post(
             ASK_URL,
@@ -825,12 +1062,15 @@ def ask_by_voice():
     global answer_ready, last_answer, last_transcript, last_error
     answer_ready = False
     last_transcript = ""
-    last_answer = ""
-    set_label(line1, "Voice", BLUE)
-    set_label(line2, "Speak now...", YELLOW)
-    set_label(line3, str(RECORD_SECONDS) + " seconds", WHITE)
-    set_label(line4, "", WHITE)
-    set_label(line5, "", WHITE)
+    last_answer = "Speak now..."
+    if UNDERTALE_UI:
+        render_assistant(True)
+    else:
+        set_label(line1, "Voice", BLUE)
+        set_label(line2, "Speak now...", YELLOW)
+        set_label(line3, str(RECORD_SECONDS) + " seconds", WHITE)
+        set_label(line4, "", WHITE)
+        set_label(line5, "", WHITE)
 
     try:
         audio = record_pcm()
@@ -846,8 +1086,12 @@ def ask_by_voice():
         render_assistant(True)
         return
 
-    set_label(line2, "Transcribing...", YELLOW)
-    set_label(line3, "Cloud STT + assistant", MUTED)
+    last_answer = "Transcribing..."
+    if UNDERTALE_UI:
+        render_assistant(True)
+    else:
+        set_label(line2, "Transcribing...", YELLOW)
+        set_label(line3, "Cloud STT + assistant", MUTED)
     try:
         url = (
             DEVICE_ASK_URL
@@ -936,13 +1180,20 @@ def estimate_wav_seconds(audio_bytes):
 
 
 def speak_text(text):
-    global last_error
+    global last_error, last_answer, answer_ready
     text = trim_sentence(text, 150)
     if not text:
         return False
-    set_label(line1, "Speaking...", GREEN)
-    set_label(line2, "", WHITE)
-    set_label(line3, "Loading audio...", MUTED)
+    previous_answer = last_answer
+    previous_ready = answer_ready
+    last_answer = "Speaking..."
+    answer_ready = False
+    if UNDERTALE_UI:
+        render_assistant(True)
+    else:
+        set_label(line1, "Speaking...", GREEN)
+        set_label(line2, "", WHITE)
+        set_label(line3, "Loading audio...", MUTED)
     try:
         response = requests.get(DEVICE_TTS_URL + "?text=" + url_encode(text), timeout=15)
         if response.status_code != 200:
@@ -951,6 +1202,8 @@ def speak_text(text):
                 response.close()
             except Exception:
                 pass
+            last_answer = previous_answer
+            answer_ready = previous_ready
             render_assistant(True)
             return False
         audio_path = "/flash/assistant.wav"
@@ -962,7 +1215,8 @@ def speak_text(text):
         except Exception:
             pass
         Speaker.begin()
-        set_label(line3, "Playing on Core2", GREEN)
+        if not UNDERTALE_UI:
+            set_label(line3, "Playing on Core2", GREEN)
         try:
             Speaker.setVolumePercentage(SPEAKER_VOLUME_PERCENT)
         except Exception:
@@ -983,7 +1237,11 @@ def speak_text(text):
             pass
     except Exception as exc:
         last_error = "TTS " + str(exc)[:20]
+        last_answer = previous_answer
+        answer_ready = previous_ready
         return False
+    last_answer = previous_answer
+    answer_ready = previous_ready
     render_assistant(True)
     return True
 
@@ -996,9 +1254,10 @@ def play_spotify_mood():
     global last_error
     if not SPOTIFY_MUSIC_ENABLED:
         return False
-    set_label(line1, "Spotify", GREEN)
-    set_label(line2, "Starting playlist...", YELLOW)
-    set_label(line3, trim(str(outdoor_main) + " " + str(outdoor_temp) + " C", 30), MUTED)
+    if not UNDERTALE_UI:
+        set_label(line1, "Spotify", GREEN)
+        set_label(line2, "Starting playlist...", YELLOW)
+        set_label(line3, trim(str(outdoor_main) + " " + str(outdoor_temp) + " C", 30), MUTED)
     try:
         url = (
             MUSIC_MOOD_URL
@@ -1012,8 +1271,9 @@ def play_spotify_mood():
         if not ok:
             last_error = "Spotify HTTP " + str(response.status_code)
             try:
-                set_label(line2, last_error, RED)
-                set_label(line3, trim(response.text, 32), MUTED)
+                if not UNDERTALE_UI:
+                    set_label(line2, last_error, RED)
+                    set_label(line3, trim(response.text, 32), MUTED)
             except Exception:
                 pass
         try:
@@ -1021,13 +1281,15 @@ def play_spotify_mood():
         except Exception:
             pass
         if ok:
-            set_label(line2, "Spotify started", GREEN)
+            if not UNDERTALE_UI:
+                set_label(line2, "Spotify started", GREEN)
             time.sleep(1)
         return ok
     except Exception as exc:
         last_error = "Spotify " + str(exc)[:18]
-        set_label(line2, "Spotify failed", RED)
-        set_label(line3, trim(str(exc), 32), MUTED)
+        if not UNDERTALE_UI:
+            set_label(line2, "Spotify failed", RED)
+            set_label(line3, trim(str(exc), 32), MUTED)
         time.sleep(2)
         return False
 
@@ -1043,11 +1305,15 @@ def run_morning_routine():
     page = PAGE_ASSISTANT
     answer_ready = False
     last_transcript = ""
-    last_answer = "Preparing morning briefing..."
-    render_assistant(True)
-    set_label(line1, "Smart Home", GREEN)
-    set_label(line2, "Motion detected", YELLOW)
-    set_label(line3, "Preparing briefing...", MUTED)
+    last_answer = "Morning mode..."
+    if UNDERTALE_UI:
+        render_busy_screen("MORNING", "Motion detected", buddy)
+    else:
+        render_assistant(True)
+    if not UNDERTALE_UI:
+        set_label(line1, "Smart Home", GREEN)
+        set_label(line2, "Motion detected", YELLOW)
+        set_label(line3, "Preparing briefing...", MUTED)
 
     try:
         fetch_weather()
@@ -1070,6 +1336,8 @@ def run_morning_routine():
 # Main
 # ---------------------------------------------------------------------------
 
+if UNDERTALE_UI:
+    choose_wifi_on_boot()
 connect_wifi()
 init_sensors()
 read_sensors()
@@ -1121,6 +1389,12 @@ while True:
                 set_label_on(status, "refresh", WHITE, 0x2563EB)
                 fetch_forecast()
                 render(True)
+            elif UNDERTALE_UI and page == PAGE_WIFI:
+                wifi_profile_index = (wifi_profile_index + 1) % len(wifi_profile_keys)
+                render(True)
+            elif UNDERTALE_UI and page == PAGE_CHARACTER:
+                buddy.select((buddy.char_idx + 1) % len(CHARACTERS))
+                render(True)
 
         elif pressed == "ACTION":
             if page == PAGE_ASSISTANT:
@@ -1131,6 +1405,16 @@ while True:
                     ask_by_voice()
                 else:
                     ask_text(current_question[2])
+            elif UNDERTALE_UI and page == PAGE_WIFI:
+                apply_wifi_profile(wifi_profile_index)
+                connect_wifi()
+                fetch_weather()
+                fetch_forecast()
+                render(True)
+            elif UNDERTALE_UI and page == PAGE_CHARACTER:
+                buddy.select(buddy.char_idx)
+                page = PAGE_DATA
+                render(True)
 
     try:
         read_sensors()
