@@ -1,0 +1,11 @@
+{
+  "python.analysis.exclude": [
+    "device/*_local.py",
+    "device/*_local*.py",
+    "device/ui/**"
+  ],
+  "python.analysis.ignore": [
+    "device/*_local.py",
+    "device/*_local*.py"
+  ]
+}

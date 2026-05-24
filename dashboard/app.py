@@ -427,6 +427,41 @@ div[data-baseweb="select"] > div {
     padding: 6px 9px;
     font-size: 0.78rem;
 }
+
+.boss-card {
+    background: #11171b;
+    border: 3px solid #2e3b47;
+    padding: 14px;
+    min-height: 150px;
+}
+
+.boss-rank {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 2.15rem;
+    line-height: 1.15;
+    color: #ffcc5c;
+}
+
+.health-bar {
+    height: 18px;
+    background: #0b0f0e;
+    border: 3px solid #2e3b47;
+    margin-top: 10px;
+}
+
+.health-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #e25555, #d6a529, #24c08b);
+}
+
+.mood-orb {
+    width: 72px;
+    height: 72px;
+    border: 3px solid #2e3b47;
+    background: var(--mood-color);
+    box-shadow: 0 0 0 5px #070a0c, 0 0 28px var(--mood-color);
+    margin: 0 auto 10px auto;
+}
 </style>
 """, unsafe_allow_html=True)
 

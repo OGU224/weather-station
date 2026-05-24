@@ -1,6 +1,7 @@
 import os
 import sys
 from datetime import datetime, timezone
+from html import escape
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -225,6 +226,265 @@ def _weather_mood(weather):
     return "Neutral day", "spotify: default playlist", "#25a7c8"
 
 
+def _health_rank(score):
+    if score >= 90:
+        return "S", "Perfect base", "All comfort systems are in a strong state."
+    if score >= 80:
+        return "A", "Healthy room", "Small changes only, the room is ready."
+    if score >= 65:
+        return "B", "Stable room", "Comfort is fine, but one signal can improve."
+    if score >= 50:
+        return "C", "Watch zone", "The room needs attention soon."
+    return "D", "Recovery mode", "Fix comfort first: air, humidity, or temperature."
+
+
+def _weather_mood_engine(weather, score):
+    main = str((weather or {}).get("weather_main", "")).lower()
+    temp = _num((weather or {}).get("temperature_c"))
+    if "rain" in main or "drizzle" in main:
+        return {
+            "name": "Rain Quest",
+            "trait": "Focus mode",
+            "loadout": "Umbrella, calm playlist",
+            "color": "#4ea5d9",
+        }
+    if temp is not None and temp >= 24:
+        return {
+            "name": "Solar Run",
+            "trait": "High energy",
+            "loadout": "Sunglasses, water, light clothes",
+            "color": "#d6a529",
+        }
+    if temp is not None and temp <= 10:
+        return {
+            "name": "Frost Start",
+            "trait": "Warm-up mode",
+            "loadout": "Layers, jacket, slower morning",
+            "color": "#7aa7d9",
+        }
+    if "clear" in main:
+        return {
+            "name": "Clear Boost",
+            "trait": "Bright start",
+            "loadout": "Sunglasses, outdoor break",
+            "color": "#ffcc5c",
+        }
+    if "cloud" in main:
+        return {
+            "name": "Cloud Calm",
+            "trait": "Steady focus",
+            "loadout": "Light layer, relaxed playlist",
+            "color": "#9aa6b2",
+        }
+    if score < 65:
+        return {
+            "name": "Recovery Quest",
+            "trait": "Room first",
+            "loadout": "Fix comfort before leaving",
+            "color": "#e25555",
+        }
+    return {
+        "name": "Neutral Day",
+        "trait": "Balanced",
+        "loadout": "Default outfit, default mood",
+        "color": "#25a7c8",
+    }
+
+
+def _quest_objectives(score, latest, weather):
+    objectives = []
+    hum = _num((latest or {}).get("humidity_pct"))
+    temp = _num((latest or {}).get("temperature_c"))
+    co2 = _num((latest or {}).get("air_quality_index"))
+    co2_source = (latest or {}).get("co2_source")
+    main = str((weather or {}).get("weather_main", "")).lower()
+
+    if score >= 85:
+        objectives.append(("Room clear", True))
+    else:
+        objectives.append(("Improve comfort", False))
+
+    if hum is None:
+        objectives.append(("Humidity scan", False))
+    elif 40 <= hum <= 60:
+        objectives.append(("Humidity balanced", True))
+    elif hum < 40:
+        objectives.append(("Raise humidity", False))
+    else:
+        objectives.append(("Reduce humidity", False))
+
+    if temp is None:
+        objectives.append(("Temp scan", False))
+    elif 20 <= temp <= 24:
+        objectives.append(("Temp balanced", True))
+    else:
+        objectives.append(("Adjust temperature", False))
+
+    if co2_source == "sensor" and co2 is not None:
+        objectives.append(("Air clear", co2 < 800))
+
+    if "rain" in main or "drizzle" in main:
+        objectives.append(("Umbrella ready", False))
+    elif weather:
+        objectives.append(("Outdoor checked", True))
+    else:
+        objectives.append(("Outdoor scan", False))
+
+    return objectives[:5]
+
+
+def _render_health_and_mood(score, mood_engine, latest, weather):
+    rank, rank_label, rank_detail = _health_rank(score)
+    temp = _fmt((weather or {}).get("temperature_c"), 1, " C")
+    hum = _fmt((latest or {}).get("humidity_pct"), 0, "%")
+
+    st.markdown(f"""
+    <div class="boss-card">
+        <div class="dash-label">Room Health Rank</div>
+        <div class="boss-rank">{escape(rank)}</div>
+        <div class="dash-detail">{escape(rank_label)}. {escape(rank_detail)}</div>
+        <div class="health-bar"><div class="health-fill" style="width:{score}%;"></div></div>
+        <div class="dash-detail">Outdoor {escape(temp)} | Humidity {escape(hum)}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown(f"""
+    <div class="boss-card" style="--mood-color:{mood_engine['color']};">
+        <div class="mood-orb"></div>
+        <div class="dash-label">Weather Mood Engine</div>
+        <div class="dash-value" style="color:{mood_engine['color']};">{escape(mood_engine['name'])}</div>
+        <div class="dash-detail">{escape(mood_engine['trait'])}</div>
+        <div class="dash-detail">{escape(mood_engine['loadout'])}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def _tutorial_steps(score, mood_engine, objectives, briefing):
+    rank, rank_label, _ = _health_rank(score)
+    done_count = sum(1 for _, done in objectives if done)
+    total = max(1, len(objectives))
+    return [
+        {
+            "speaker": "Home Guide",
+            "title": "Welcome to Home Base",
+            "text": "This dashboard works like a tiny daily quest. Your goal is to keep the room healthy and prepare for the weather outside.",
+        },
+        {
+            "speaker": "Comfort Scout",
+            "title": "Check Your Room Rank",
+            "text": f"Your current room rank is {rank}: {rank_label}. The score reacts to temperature, humidity, air quality, and recent motion.",
+        },
+        {
+            "speaker": "Weather Oracle",
+            "title": "Read The Mood",
+            "text": f"Today is classified as {mood_engine['name']}. The mood engine turns outdoor weather into simple advice: {mood_engine['loadout']}.",
+        },
+        {
+            "speaker": "Quest Log",
+            "title": "Complete Objectives",
+            "text": f"You have completed {done_count}/{total} comfort objectives. Green objectives are already safe, yellow ones need attention.",
+        },
+        {
+            "speaker": "Morning Assistant",
+            "title": "Use The Morning Briefing",
+            "text": briefing,
+        },
+    ]
+
+
+def _render_tutorial(score, mood_engine, objectives, briefing):
+    steps = _tutorial_steps(score, mood_engine, objectives, briefing)
+    if "home_tutorial_step" not in st.session_state:
+        st.session_state["home_tutorial_step"] = 0
+    step_index = max(0, min(len(steps) - 1, st.session_state["home_tutorial_step"]))
+    step = steps[step_index]
+    progress = int(((step_index + 1) / len(steps)) * 100)
+
+    st.markdown(f"""
+    <div class="routine-panel">
+        <div class="dash-label">{escape(step["speaker"])} | Step {step_index + 1}/{len(steps)}</div>
+        <div class="routine-text">{escape(step["title"])}</div>
+        <div class="dash-detail">{escape(step["text"])}</div>
+        <div class="health-bar"><div class="health-fill" style="width:{progress}%;"></div></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    prev_col, next_col, skip_col = st.columns([1, 1, 1])
+    with prev_col:
+        if st.button("Back", use_container_width=True, disabled=step_index == 0):
+            st.session_state["home_tutorial_step"] = max(0, step_index - 1)
+            st.rerun()
+    with next_col:
+        label = "Unlock dashboard" if step_index == len(steps) - 1 else "Continue"
+        if st.button(label, use_container_width=True):
+            if step_index == len(steps) - 1:
+                st.session_state["home_tutorial_done"] = True
+            else:
+                st.session_state["home_tutorial_step"] = min(len(steps) - 1, step_index + 1)
+            st.rerun()
+    with skip_col:
+        if st.button("Skip", use_container_width=True):
+            st.session_state["home_tutorial_done"] = True
+            st.rerun()
+
+    return step_index
+
+
+def _render_morning_panel(briefing):
+    st.markdown(f"""
+    <div class="routine-panel">
+        <div class="dash-label">Assistant says</div>
+        <div class="routine-text">{escape(briefing)}</div>
+        <div class="routine-grid">
+            <span>Motion</span>
+            <span>Advice</span>
+            <span>Voice</span>
+            <span>Music</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def _render_tutorial_unlock(step_index, score, mood_engine, latest, weather, objectives, briefing):
+    if step_index == 0:
+        st.markdown('<div class="pixel-title">FIRST QUESTS</div>', unsafe_allow_html=True)
+        _render_objectives(objectives[:3])
+        _card("Goal", "Unlock Home Base", "Finish the guide to reveal the full dashboard.", "#ffcc5c")
+    elif step_index == 1:
+        st.markdown('<div class="pixel-title">UNLOCKED: HEALTH</div>', unsafe_allow_html=True)
+        _render_health_and_mood(score, mood_engine, latest, weather)
+    elif step_index == 2:
+        st.markdown('<div class="pixel-title">UNLOCKED: WEATHER MOOD</div>', unsafe_allow_html=True)
+        _card("Quest Mood", mood_engine["name"], mood_engine["trait"], mood_engine["color"])
+        _card("Loadout", mood_engine["loadout"], "weather-based advice", "#ffcc5c")
+    elif step_index == 3:
+        st.markdown('<div class="pixel-title">UNLOCKED: OBJECTIVES</div>', unsafe_allow_html=True)
+        _render_objectives(objectives)
+    else:
+        st.markdown('<div class="pixel-title">UNLOCKED: MORNING</div>', unsafe_allow_html=True)
+        _render_morning_panel(briefing)
+
+
+def _render_tutorial_reset_button():
+    reset_col, _ = st.columns([1, 4])
+    with reset_col:
+        if st.button("Replay tutorial", use_container_width=True):
+            st.session_state["home_tutorial_step"] = 0
+            st.session_state["home_tutorial_done"] = False
+            st.rerun()
+
+
+def _render_objectives(objectives):
+    rows = []
+    for text, done in objectives:
+        marker = "[OK]" if done else "[ ]"
+        color = "#24c08b" if done else "#d6a529"
+        rows.append(
+            f'<span class="smart-pill" style="border-color:{color}; color:{color};">{marker} {escape(text)}</span>'
+        )
+    st.markdown("".join(rows), unsafe_allow_html=True)
+
+
 def _outfit_advice(weather):
     temp = _num((weather or {}).get("temperature_c"))
     main = str((weather or {}).get("weather_main", "")).lower()
@@ -368,8 +628,10 @@ def render():
     score, comfort_label, tone, reasons, motion_count = _comfort_score(latest, history_df)
     action, _ = _ventilation_advice(latest, weather)
     mood, mood_detail, mood_color = _weather_mood(weather)
+    mood_engine = _weather_mood_engine(weather, score)
     briefing = _morning_briefing(weather)
     outfit = _outfit_advice(weather)
+    objectives = _quest_objectives(score, latest, weather)
     active_devices = [device for device in devices if device.get("is_active")]
     spotify_state = active_devices[0].get("name") if active_devices else "Waiting for music app"
 
@@ -379,63 +641,73 @@ def render():
             <div>
                 <div class="eyebrow">PLAYER 1: HOME</div>
                 <h1>Home Base</h1>
-                <p>Motion wakes the assistant. Weather picks the advice. Spotify sets the mood.</p>
+                <p>Start with the guide, then unlock the full smart-home dashboard.</p>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    left, center, right = st.columns([0.95, 1.4, 0.95])
-    with left:
-        st.markdown('<div class="pixel-title">STATUS</div>', unsafe_allow_html=True)
+    tutorial_done = st.session_state.get("home_tutorial_done", False)
+    if not tutorial_done:
+        game_left, game_right = st.columns([1.15, 0.85])
+        with game_left:
+            st.markdown('<div class="pixel-title">TUTORIAL QUEST</div>', unsafe_allow_html=True)
+            step_index = _render_tutorial(score, mood_engine, objectives, briefing)
+        with game_right:
+            _render_tutorial_unlock(step_index, score, mood_engine, latest, weather, objectives, briefing)
+        st.caption("Complete the guide to unlock the full Home Base.")
+        return
+
+    _render_tutorial_reset_button()
+
+    top_left, top_mid, top_right = st.columns([1, 1, 1])
+    with top_left:
+        st.markdown('<div class="pixel-title">HEALTH SCORE</div>', unsafe_allow_html=True)
         st.plotly_chart(_score_gauge(score, tone), use_container_width=True)
         _card("Room", comfort_label, ", ".join(reasons) if reasons else "Comfort OK", tone)
-
-    with center:
+    with top_mid:
         st.markdown('<div class="pixel-title">MORNING QUEST</div>', unsafe_allow_html=True)
-        st.markdown(f"""
-        <div class="routine-panel">
-            <div class="dash-label">Assistant says</div>
-            <div class="routine-text">{briefing}</div>
-            <div class="routine-grid">
-                <span>Motion</span>
-                <span>Advice</span>
-                <span>Voice</span>
-                <span>Spotify</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        _render_morning_panel(briefing)
         st.markdown('<div style="height: 6px;"></div>', unsafe_allow_html=True)
         controls = st.columns(2)
         with controls[0]:
             if st.button("Start mood track", use_container_width=True):
                 try:
-                    result = _post(
+                    _post(
                         "/api/music/play-mood",
                         {"mood": (weather or {}).get("weather_main", "Clear"), "temperature_c": (weather or {}).get("temperature_c")},
                     )
                     st.success("Music started")
-                except Exception as exc:
+                except Exception:
                     st.error("Music is unavailable right now.")
         with controls[1]:
             if st.button("Save weather", use_container_width=True):
                 stored = _fetch("/api/weather/current", params={"store": "true"})
                 st.success("Saved") if stored else st.warning("Not saved")
-
-    with right:
-        st.markdown('<div class="pixel-title">LOADOUT</div>', unsafe_allow_html=True)
-        _card("Outdoor", f"{_fmt((weather or {}).get('temperature_c'), 1)} C", (weather or {}).get("weather_main", "Unavailable"), "#d6a529")
-        _card("Wear", outfit, "", "#ffcc5c")
+    with top_right:
+        st.markdown('<div class="pixel-title">WEATHER MOOD</div>', unsafe_allow_html=True)
+        _card("Quest Mood", mood_engine["name"], mood_engine["trait"], mood_engine["color"])
+        _card("Loadout", mood_engine["loadout"], "weather-based advice", "#ffcc5c")
         _card("Music", mood, spotify_state, mood_color)
 
-    st.markdown('<div class="pixel-title">SIGNALS</div>', unsafe_allow_html=True)
-    chart_cols = st.columns([1, 1, 1])
-    with chart_cols[0]:
-        _card("Indoor", f"{_fmt((latest or {}).get('temperature_c'), 1)} C", f"{_fmt((latest or {}).get('humidity_pct'), 0)}% humidity", "#24c08b")
-    with chart_cols[1]:
-        _card("Motion", str(motion_count), "events / 24h", "#ffcc5c")
-    with chart_cols[2]:
-        _card("Air", action, "ventilation state", "#25a7c8")
+    lower_left, lower_right = st.columns([1, 1])
+    with lower_left:
+        st.markdown('<div class="pixel-title">OBJECTIVES</div>', unsafe_allow_html=True)
+        _render_objectives(objectives)
+        st.markdown('<div style="height: 10px;"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="pixel-title">SIGNALS</div>', unsafe_allow_html=True)
+        signal_cols = st.columns(3)
+        with signal_cols[0]:
+            _card("Indoor", f"{_fmt((latest or {}).get('temperature_c'), 1)} C", f"{_fmt((latest or {}).get('humidity_pct'), 0)}% humidity", "#24c08b")
+        with signal_cols[1]:
+            _card("Motion", str(motion_count), "events / 24h", "#ffcc5c")
+        with signal_cols[2]:
+            _card("Air", action, "ventilation state", "#25a7c8")
+    with lower_right:
+        st.markdown('<div class="pixel-title">TODAY LOADOUT</div>', unsafe_allow_html=True)
+        _card("Outdoor", f"{_fmt((weather or {}).get('temperature_c'), 1)} C", (weather or {}).get("weather_main", "Unavailable"), "#d6a529")
+        _card("Wear", outfit, "", "#ffcc5c")
+        _render_health_and_mood(score, mood_engine, latest, weather)
 
     with st.expander("Show activity charts"):
         chart_cols = st.columns(3)
