@@ -1,61 +1,105 @@
-"""M5Stack Core2 weather station with a small assistant page.
+﻿"""M5Stack Core2 weather station firmware for UIFlow 2.
+
+Final UIFlow 2 firmware. Copy it into UIFlow 2 as main.py, then set local
+WiFi/API values in your private copy.
 
 Buttons:
-  A: switch between data, forecast, and assistant pages
-  B: on assistant page, cycle suggested questions
-  C: on assistant page, ask the selected question or speak the answer
+  A: switch page
+  B: refresh on data page, next question on assistant page
+  C: ask selected question, record voice question, or speak answer
 """
 
-from m5stack import *
-from m5ui import *
-from uiflow import *
 import time
-import unit
 import ujson
-import urequests
 
 try:
-    import wifiCfg
+    import requests
 except Exception:
-    wifiCfg = None
+    import urequests as requests
 
-# WiFi/API profiles for Flow/M5Stack uploads.
-# Change ACTIVE_PROFILE when you move between hotspot and university WiFi.
+try:
+    import network
+except Exception:
+    network = None
+
+import M5
+from M5 import *
+
+try:
+    from hardware import I2C, Pin
+except Exception:
+    I2C = None
+    Pin = None
+
+try:
+    from unit import ENVUnit
+except Exception:
+    ENVUnit = None
+
+# ---------------------------------------------------------------------------
+# Local setup. Keep real passwords/IPs in your UIFlow copy or main_uiflow2_local.py.
+# ---------------------------------------------------------------------------
+
 WIFI_PROFILES = {
     "hotspot": {
-        "ssid": "YOUR_HOTSPOT_NAME",
+        "ssid": "YOUR_HOTSPOT_SSID",
         "password": "YOUR_HOTSPOT_PASSWORD",
-        "api": "http://YOUR_LAPTOP_HOTSPOT_IP:5000",
+        "api": "http://YOUR_COMPUTER_IP:5000",
     },
     "university": {
         "ssid": "iot-unil",
-        "password": "CHANGE_ME",
-        "api": "http://CHANGE_ME_LAPTOP_IP:5000",
+        "password": "YOUR_UNIVERSITY_WIFI_PASSWORD",
+        "api": "http://YOUR_COMPUTER_IP:5000",
     },
-
 }
 
-ACTIVE_PROFILE = "hotspot"
+# Change this in your local UIFlow copy when moving between networks.
+ACTIVE_PROFILE = "university"
 ACTIVE_WIFI = WIFI_PROFILES[ACTIVE_PROFILE]
 
 WIFI_SSID = ACTIVE_WIFI["ssid"]
 WIFI_PASSWORD = ACTIVE_WIFI["password"]
 API_BASE_URL = ACTIVE_WIFI["api"]
 DEVICE_ID = "m5stack-01"
-SENSOR_MODE = "env3"  # "env3" for temperature/humidity, "co2" when the CO2 unit is plugged into PORTA.
-SEND_INTERVAL_SECONDS = 60
-WEATHER_REFRESH_SECONDS = 300
-DATA_RENDER_SECONDS = 15
-SPEAKER_VOLUME = 12
+SENSOR_MODE = "env3"  # "env3" or "co2" once a UIFlow 2 CO2 reader is added.
+
+SEND_SECONDS = 60
+WEATHER_SECONDS = 300
+RENDER_SECONDS = 15
+RECORD_SECONDS = 4
+STT_LANGUAGE = "en-US"
+SPEAKER_VOLUME_PERCENT = 70
+SHOW_TRANSCRIPT_SECONDS = 2
+MORNING_ROUTINE_ENABLED = True
+MORNING_COOLDOWN_SECONDS = 900
+SPOTIFY_MUSIC_ENABLED = True
+LOCAL_MUSIC_FALLBACK_ENABLED = False
+SPOTIFY_TIMEOUT_SECONDS = 18
+MORNING_QUESTION = (
+    "Generate a very short smart-home morning briefing for someone who just entered "
+    "the room. Use exactly this format with short phrases, no extra words: "
+    "Good morning. Weather outside: [temperature] degrees, [weather]. "
+    "Wear: [short clothing/accessory advice]."
+)
+
+# If physical buttons feel reversed after rotation, swap these labels only.
+BUTTON_PAGE = "A"
+BUTTON_NEXT = "B"
+BUTTON_ACTION = "C"
 
 API_BASE = API_BASE_URL.rstrip("/")
 SENSOR_URL = API_BASE + "/api/sensors/reading"
 WEATHER_URL = API_BASE + "/api/weather/current"
 FORECAST_URL = API_BASE + "/api/weather/forecast?days=3"
 ASK_URL = API_BASE + "/api/voice/ask"
-DEVICE_SUMMARY_URL = API_BASE + "/api/voice/device-summary"
-TTS_URL = API_BASE + "/api/voice/tts"
+DEVICE_ASK_URL = API_BASE + "/api/voice/device-audio-question"
 DEVICE_TTS_URL = API_BASE + "/api/voice/device-tts"
+MUSIC_MOOD_URL = API_BASE + "/api/music/play-mood"
+
+
+# ---------------------------------------------------------------------------
+# UI constants/state
+# ---------------------------------------------------------------------------
 
 PAGE_DATA = 0
 PAGE_FORECAST = 1
@@ -63,13 +107,13 @@ PAGE_ASSISTANT = 2
 
 QUESTIONS = [
     (
-        "Comfort now",
-        "Check room comfort",
+        "Comfort",
+        "Room comfort now",
         "Check comfort using indoor and outdoor weather. Answer in at most 18 words.",
     ),
     (
-        "Ventilate?",
-        "Open window now?",
+        "Ventilate",
+        "Open the window?",
         "Should I open the window now? Answer in at most 18 words.",
     ),
     (
@@ -83,314 +127,350 @@ QUESTIONS = [
         "Summarize outdoor weather and forecast. Answer in at most 18 words.",
     ),
     (
-        "Motion",
-        "Motion today",
-        "Summarize motion activity today. Answer in at most 18 words.",
+        "Voice",
+        "Press C and speak",
+        "VOICE_RECORD",
     ),
 ]
 
-current_page = PAGE_DATA
-pending_action = None
-selected_question = 0
-answer_ready = False
-last_answer = "Select a question."
-last_speech = ""
-last_send_ok = False
-last_send_ms = 0
-last_weather_ms = 0
-last_render_ms = 0
-latest_temp = 0.0
-latest_hum = 0.0
-latest_motion = False
-latest_co2 = None
-outdoor_temp = "--"
-outdoor_hum = "--"
-outdoor_wind = "--"
-outdoor_main = "Weather"
-outdoor_city = "Outdoor"
-outdoor_ok = False
-outdoor_status = "loading"
-forecast_days = []
-forecast_ok = False
-forecast_status = "loading"
-wifi_connected = False
-
-
-BG = 0x101827
-PANEL = 0x1F2937
-PANEL_2 = 0x263445
-TEXT = 0xFFFFFF
-MUTED = 0xA7B3C6
+BG = 0x08111F
+HEADER = 0x00A6D6
+PANEL = 0x13263A
+PANEL_2 = 0x17324B
+FOOTER = 0x06101D
+WHITE = 0xFFFFFF
+MUTED = 0x9DB1C3
 BLUE = 0x38BDF8
 GREEN = 0x34D399
 YELLOW = 0xFBBF24
 RED = 0xF87171
+PURPLE = 0x5B5FEF
 
-setScreenColor(BG)
-lcd.clear()
-lcd.font(lcd.FONT_Default)
+page = PAGE_DATA
+question_index = 0
+answer_ready = False
+last_answer = "Select a question."
+last_transcript = ""
+last_error = ""
 
-title = M5TextBox(10, 10, "Weather Station", lcd.FONT_Default, 0xFFFFFF)
-line1 = M5TextBox(10, 38, "", lcd.FONT_Default, TEXT)
-line2 = M5TextBox(10, 66, "", lcd.FONT_Default, TEXT)
-line3 = M5TextBox(10, 94, "", lcd.FONT_Default, TEXT)
-line4 = M5TextBox(10, 122, "", lcd.FONT_Default, TEXT)
-line5 = M5TextBox(10, 150, "", lcd.FONT_Default, TEXT)
-line6 = M5TextBox(10, 178, "", lcd.FONT_Default, TEXT)
-status_line = M5TextBox(10, 178, "", lcd.FONT_Default, MUTED)
-footer = M5TextBox(10, 214, "A: page", lcd.FONT_Default, 0xAAAAAA)
+wifi_ok = False
+send_ok = False
+latest_temp = None
+latest_hum = None
+latest_motion = False
+previous_motion = False
+latest_co2 = None
 
+outdoor_ok = False
+outdoor_temp = "--"
+outdoor_hum = "--"
+outdoor_wind = "--"
+outdoor_main = "loading"
+outdoor_city = "Outdoor"
+forecast_days = []
 
-def set_lines(a="", b="", c="", d="", e="", f=""):
-    line1.setText(str(a))
-    line2.setText(str(b))
-    line3.setText(str(c))
-    line4.setText(str(d))
-    line5.setText(str(e))
-    line6.setText(str(f))
-
-
-def clear_texts():
-    set_lines("", "", "", "", "", "")
-    status_line.setText("")
-    footer.setText("")
+env3 = None
 
 
-def set_text_color(widget, color):
+# ---------------------------------------------------------------------------
+# Small compatibility helpers
+# ---------------------------------------------------------------------------
+
+def now_ms():
+    return time.ticks_ms()
+
+
+def elapsed_ms(start):
+    return time.ticks_diff(time.ticks_ms(), start)
+
+
+def ascii_text(value):
+    text = str(value or "")
+    replacements = [
+        ("\xe9", "e"), ("\xe8", "e"), ("\xea", "e"), ("\xeb", "e"),
+        ("\xe0", "a"), ("\xe2", "a"), ("\xf9", "u"), ("\xfb", "u"),
+        ("\xf4", "o"), ("\xee", "i"), ("\xef", "i"), ("\xe7", "c"),
+        ("\xb0", " deg "), ("\u2019", "'"), ("\u2013", "-"), ("\u2014", "-"),
+    ]
+    for old, new in replacements:
+        text = text.replace(old, new)
+    return "".join(char for char in text if ord(char) < 128)
+
+
+def trim(value, max_chars):
+    text = ascii_text(value).replace("\n", " ")
+    text = " ".join(text.split())
+    if len(text) > max_chars:
+        return text[: max_chars - 3].rstrip(" ,.;:") + "..."
+    return text
+
+
+def trim_sentence(value, max_chars):
+    text = trim(value, max_chars * 2)
+    if len(text) <= max_chars:
+        if text and text[-1] not in ".!?":
+            text += "."
+        return text
+
+    cutoff = -1
+    for mark in [". ", "! ", "? "]:
+        pos = text.rfind(mark, 0, max_chars)
+        if pos > cutoff:
+            cutoff = pos + 1
+
+    if cutoff >= 30:
+        return text[:cutoff].strip()
+
+    return text[:max_chars].rstrip(" ,.;:") + "."
+
+
+def has_outfit_advice(text):
+    value = str(text or "").lower()
+    keywords = [
+        "umbrella",
+        "sunglasses",
+        "sunscreen",
+        "jacket",
+        "coat",
+        "layers",
+        "layer",
+        "raincoat",
+        "wear",
+        "bring",
+    ]
+    return any(word in value for word in keywords)
+
+
+def local_outfit_advice():
+    weather = str(outdoor_main or "").lower()
     try:
-        widget.setColor(color)
+        temp = float(outdoor_temp)
+    except Exception:
+        temp = None
+
+    if "rain" in weather or "drizzle" in weather or "storm" in weather:
+        return "Don't forget an umbrella or a rain jacket."
+    if temp is not None and temp >= 24:
+        return "Wear light clothes, and bring sunglasses and sunscreen."
+    if "clear" in weather or "sun" in weather:
+        return "Bring sunglasses, and use sunscreen if you stay outside."
+    if temp is not None and temp <= 10:
+        return "Wear a warm jacket or extra layers."
+    if temp is not None and temp <= 16:
+        return "A light jacket or layers would be comfortable."
+    return "Dress comfortably, and take a light layer just in case."
+
+
+def outdoor_weather_sentence():
+    if not outdoor_ok:
+        return "I could not load the outdoor weather right now."
+
+    condition = str(outdoor_main or "weather").lower()
+    condition = condition.replace("clear", "clear skies")
+    condition = condition.replace("clouds", "cloudy weather")
+    condition = condition.replace("rain", "rain")
+    temp = str(outdoor_temp)
+    hum = str(outdoor_hum)
+    wind = str(outdoor_wind)
+    return (
+        "Outside in Lausanne, it is "
+        + temp
+        + " degrees with "
+        + condition
+        + ", "
+        + hum
+        + " percent humidity, and wind at "
+        + wind
+        + " meters per second."
+    )
+
+
+def morning_briefing_text():
+    if not outdoor_ok:
+        return "Good morning. Weather outside: unavailable. Wear: take a light layer just in case."
+    return (
+        "Good morning. Weather outside: "
+        + str(outdoor_temp)
+        + " degrees, "
+        + str(outdoor_main)
+        + ". Wear: "
+        + local_outfit_advice().replace("Don't forget ", "").replace("Wear ", "").rstrip(".")
+        + "."
+    )
+
+
+def ai_morning_question():
+    return (
+        MORNING_QUESTION
+        + " Current outdoor data: city Lausanne, temperature "
+        + str(outdoor_temp)
+        + " degrees, weather "
+        + str(outdoor_main)
+        + ", humidity "
+        + str(outdoor_hum)
+        + " percent, wind "
+        + str(outdoor_wind)
+        + " meters per second. Recommended advice if needed: "
+        + local_outfit_advice()
+    )
+
+
+def valid_morning_briefing(text):
+    value = str(text or "").lower()
+    if len(value) < 35:
+        return False
+    if not ("good morning" in value or "hello" in value):
+        return False
+    if not ("weather outside" in value or str(outdoor_temp).lower() in value):
+        return False
+    return has_outfit_advice(value)
+
+
+def get_ai_morning_briefing():
+    try:
+        response = requests.post(
+            ASK_URL,
+            json={"question": ai_morning_question(), "device_id": DEVICE_ID, "hours": 24},
+            headers={"Content-Type": "application/json"},
+            timeout=18,
+        )
+        data = get_json_response(response)
+        answer = trim_sentence(data.get("answer", ""), 150)
+        if valid_morning_briefing(answer):
+            return answer
     except Exception:
         pass
+    return morning_briefing_text()
 
 
-def move_text(widget, x, y):
+def url_encode(value):
+    safe = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~"
+    encoded = ""
+    for char in str(value):
+        if char in safe:
+            encoded += char
+        elif char == " ":
+            encoded += "%20"
+        else:
+            encoded += "%20"
+    return encoded
+
+
+def get_json_response(response):
+    body = response.text
     try:
-        widget.setPosition(x, y)
+        response.close()
     except Exception:
         pass
+    return ujson.loads(body)
 
 
-def use_full_text_layout():
-    move_text(title, 14, 11)
-    move_text(line1, 18, 48)
-    move_text(line2, 18, 76)
-    move_text(line3, 18, 104)
-    move_text(line4, 18, 132)
-    move_text(line5, 18, 160)
-    move_text(line6, 18, 188)
-    move_text(status_line, 10, 196)
-    move_text(footer, 10, 214)
+def button_is_down(button):
+    try:
+        return button.isPressed()
+    except Exception:
+        try:
+            return button.wasPressed()
+        except Exception:
+            return False
 
 
-def use_dashboard_text_layout():
-    move_text(title, 10, 9)
-    move_text(line1, 18, 48)
-    move_text(line2, 18, 76)
-    move_text(line3, 18, 112)
-    move_text(line4, 178, 48)
-    move_text(line5, 178, 76)
-    move_text(line6, 178, 112)
-    move_text(status_line, 18, 171)
-    move_text(footer, 10, 214)
+last_down = {"A": False, "B": False, "C": False}
 
 
-def use_forecast_text_layout():
-    move_text(title, 10, 9)
-    move_text(line1, 18, 50)
-    move_text(line2, 18, 70)
-    move_text(line3, 18, 108)
-    move_text(line4, 18, 128)
-    move_text(line5, 18, 166)
-    move_text(line6, 18, 186)
-    move_text(status_line, 170, 166)
-    move_text(footer, 10, 214)
-
-
-def use_assistant_text_layout():
-    move_text(title, 14, 11)
-    move_text(line1, 34, 62)
-    move_text(line2, 34, 102)
-    move_text(line3, 34, 132)
-    move_text(line4, 24, 162)
-    move_text(line5, 24, 184)
-    move_text(line6, 24, 188)
-    move_text(status_line, 10, 196)
-    move_text(footer, 10, 214)
+def read_button_click():
+    states = {
+        "A": button_is_down(BtnA),
+        "B": button_is_down(BtnB),
+        "C": button_is_down(BtnC),
+    }
+    clicked = None
+    for name in ["C", "B", "A"]:
+        if states[name] and not last_down[name]:
+            clicked = name
+            break
+    for name in ["A", "B", "C"]:
+        last_down[name] = states[name]
+    return clicked
 
 
 def fill_rect(x, y, w, h, color):
     try:
-        lcd.rect(x, y, w, h, color, color)
+        Widgets.Rectangle(x, y, w, h, color, color)
     except Exception:
         try:
-            lcd.fillRect(x, y, w, h, color)
+            M5.Lcd.fillRect(x, y, w, h, color)
         except Exception:
             pass
 
 
-def draw_circle(x, y, r, color):
-    try:
-        lcd.circle(x, y, r, color, color)
-    except Exception:
+def set_label(label, text, color=None):
+    label.setText(ascii_text(text))
+    if color is not None:
         try:
-            lcd.circle(x, y, r, color)
+            label.setColor(color, BG)
         except Exception:
             pass
 
 
-def draw_line(x1, y1, x2, y2, color):
+def set_label_on(label, text, fg, bg):
+    label.setText(ascii_text(text))
     try:
-        lcd.line(x1, y1, x2, y2, color)
+        label.setColor(fg, bg)
     except Exception:
         pass
 
 
-def draw_weather_icon(main, x, y):
-    condition = str(main).lower()
-    if "rain" in condition or "drizzle" in condition:
-        draw_circle(x, y, 16, 0x94A3B8)
-        draw_circle(x - 15, y + 4, 11, 0x94A3B8)
-        draw_circle(x + 15, y + 5, 11, 0x94A3B8)
-        draw_line(x - 16, y + 28, x - 22, y + 38, BLUE)
-        draw_line(x, y + 28, x - 6, y + 38, BLUE)
-        draw_line(x + 16, y + 28, x + 10, y + 38, BLUE)
-    elif "cloud" in condition:
-        draw_circle(x, y, 17, 0xCBD5E1)
-        draw_circle(x - 16, y + 5, 11, 0xCBD5E1)
-        draw_circle(x + 17, y + 6, 11, 0xCBD5E1)
-        fill_rect(x - 23, y + 5, 47, 14, 0xCBD5E1)
-    elif "snow" in condition:
-        draw_circle(x, y, 16, 0xE0F2FE)
-        draw_line(x - 18, y + 30, x + 18, y + 30, TEXT)
-        draw_line(x, y + 14, x, y + 46, TEXT)
-        draw_line(x - 12, y + 18, x + 12, y + 42, TEXT)
-        draw_line(x + 12, y + 18, x - 12, y + 42, TEXT)
-    else:
-        draw_circle(x, y + 8, 19, YELLOW)
-        draw_line(x, y - 20, x, y - 30, YELLOW)
-        draw_line(x, y + 39, x, y + 49, YELLOW)
-        draw_line(x - 29, y + 8, x - 40, y + 8, YELLOW)
-        draw_line(x + 29, y + 8, x + 40, y + 8, YELLOW)
+# ---------------------------------------------------------------------------
+# Boot/UI objects
+# ---------------------------------------------------------------------------
+
+M5.begin()
+Widgets.fillScreen(BG)
+
+header = Widgets.Label("Cloud Weather", 12, 7, 1.0, WHITE, HEADER, Widgets.FONTS.DejaVu18)
+status = Widgets.Label("", 210, 10, 1.0, WHITE, HEADER, Widgets.FONTS.DejaVu12)
+line1 = Widgets.Label("", 16, 45, 1.0, WHITE, BG, Widgets.FONTS.DejaVu18)
+line2 = Widgets.Label("", 16, 72, 1.0, WHITE, BG, Widgets.FONTS.DejaVu18)
+line3 = Widgets.Label("", 16, 101, 1.0, WHITE, BG, Widgets.FONTS.DejaVu18)
+line4 = Widgets.Label("", 16, 130, 1.0, WHITE, BG, Widgets.FONTS.DejaVu18)
+line5 = Widgets.Label("", 16, 159, 1.0, WHITE, BG, Widgets.FONTS.DejaVu18)
+line6 = Widgets.Label("", 16, 188, 1.0, WHITE, BG, Widgets.FONTS.DejaVu12)
+footer = Widgets.Label("A:page", 12, 219, 1.0, MUTED, FOOTER, Widgets.FONTS.DejaVu12)
 
 
-def draw_mini_weather_icon(main, x, y):
-    condition = str(main).lower()
-    if "rain" in condition or "drizzle" in condition:
-        draw_circle(x, y, 8, 0xCBD5E1)
-        draw_circle(x - 8, y + 3, 6, 0xCBD5E1)
-        draw_circle(x + 8, y + 3, 6, 0xCBD5E1)
-        draw_line(x - 7, y + 14, x - 10, y + 20, BLUE)
-        draw_line(x + 4, y + 14, x + 1, y + 20, BLUE)
-    elif "cloud" in condition:
-        draw_circle(x, y, 9, 0xCBD5E1)
-        draw_circle(x - 9, y + 3, 6, 0xCBD5E1)
-        draw_circle(x + 9, y + 3, 6, 0xCBD5E1)
-        fill_rect(x - 13, y + 3, 27, 8, 0xCBD5E1)
-    else:
-        draw_circle(x, y, 11, YELLOW)
-        draw_line(x, y - 15, x, y - 20, YELLOW)
-        draw_line(x, y + 15, x, y + 20, YELLOW)
-        draw_line(x - 15, y, x - 20, y, YELLOW)
-        draw_line(x + 15, y, x + 20, y, YELLOW)
+def clear_lines():
+    set_label(line1, "")
+    set_label(line2, "")
+    set_label(line3, "")
+    set_label(line4, "")
+    set_label(line5, "")
+    set_label(line6, "")
 
 
-def draw_data_frame():
-    clear_texts()
-    fill_rect(0, 0, 320, 240, BG)
-    fill_rect(0, 0, 320, 30, 0x0F766E)
-    fill_rect(8, 38, 144, 112, PANEL)
-    fill_rect(168, 38, 144, 112, PANEL)
-    fill_rect(8, 158, 304, 40, PANEL_2)
-    fill_rect(0, 204, 320, 36, 0x0B1220)
-    if outdoor_ok:
-        draw_mini_weather_icon(outdoor_main, 286, 62)
+def draw_base(title, color):
+    Widgets.fillScreen(BG)
+    fill_rect(0, 0, 320, 32, color)
+    fill_rect(0, 210, 320, 30, FOOTER)
+    set_label_on(header, title, WHITE, color)
+    set_label_on(status, "online" if wifi_ok else "offline", WHITE, color)
+    clear_lines()
 
 
-def draw_question_frame():
-    clear_texts()
-    fill_rect(0, 0, 320, 240, BG)
-    fill_rect(0, 0, 320, 32, 0x4338CA)
-    fill_rect(14, 48, 292, 110, PANEL_2)
-    fill_rect(0, 204, 320, 36, 0x0B1220)
-    fill_rect(22, 58, 4, 88, BLUE)
-
-
-def draw_answer_frame():
-    clear_texts()
-    fill_rect(0, 0, 320, 240, BG)
-    fill_rect(0, 0, 320, 32, 0x0F766E)
-    fill_rect(10, 44, 300, 148, PANEL)
-    fill_rect(0, 204, 320, 36, 0x0B1220)
-    draw_circle(286, 61, 12, GREEN)
-
-
-def draw_forecast_frame():
-    clear_texts()
-    fill_rect(0, 0, 320, 240, BG)
-    fill_rect(0, 0, 320, 30, 0x0369A1)
-    fill_rect(8, 40, 304, 44, PANEL)
-    fill_rect(8, 98, 304, 44, PANEL)
-    fill_rect(8, 156, 304, 44, PANEL)
-    fill_rect(0, 204, 320, 36, 0x0B1220)
-
-
-def short_date(date_text):
-    text = str(date_text)
-    if len(text) >= 10:
-        return text[5:10]
-    return text
-
-
-def forecast_line(index):
-    if not forecast_ok or index >= len(forecast_days):
-        return "--", forecast_status
-    item = forecast_days[index]
-    date_text = short_date(item.get("date", "day"))
-    low = str(round(float(item.get("temp_min", 0)), 1))
-    high = str(round(float(item.get("temp_max", 0)), 1))
-    condition = str(item.get("weather_main", "Weather"))
-    if "Rain" in condition:
-        condition = "Rain expected"
-    elif "Cloud" in condition:
-        condition = "Cloudy"
-    elif "Clear" in condition:
-        condition = "Clear sky"
-    elif "Snow" in condition:
-        condition = "Snow"
-    return date_text + "   " + high + "/" + low + " C", condition
-
-
-def current_alert():
-    if latest_hum and latest_hum < 40:
-        return "Low humidity", YELLOW
-    if latest_hum and latest_hum > 65:
-        return "Humid room", YELLOW
-    if latest_motion:
-        return "Motion now", BLUE
-    if outdoor_ok and ("rain" in str(outdoor_main).lower() or "drizzle" in str(outdoor_main).lower()):
-        return "Rain outside", BLUE
-    if last_send_ok:
-        return "All good", GREEN
-    return "Waiting upload", MUTED
-
-
-def short_lines(text, max_chars=31, max_lines=6):
-    words = str(text).replace("\n", " ").split(" ")
-    lines = []
-    current = ""
+def wrap_text(text, width, max_lines):
+    words = trim(text, width * max_lines + 20).split(" ")
+    lines = [""]
     for word in words:
         if not word:
             continue
-        candidate = word if not current else current + " " + word
-        if len(candidate) <= max_chars:
-            current = candidate
+        candidate = word if not lines[-1] else lines[-1] + " " + word
+        if len(candidate) <= width:
+            lines[-1] = candidate
+        elif len(lines) < max_lines:
+            lines.append(word)
         else:
-            lines.append(current)
-            current = word
-        if len(lines) >= max_lines:
+            lines[-1] = trim(lines[-1] + " " + word, width)
             break
-    if current and len(lines) < max_lines:
-        lines.append(current)
     while len(lines) < max_lines:
         lines.append("")
     return lines[:max_lines]
@@ -402,495 +482,682 @@ def display_value(value, suffix=""):
     return str(value) + suffix
 
 
-def fit_answer(text, max_chars=135):
-    value = str(text).replace("\n", " ").strip()
-    if len(value) > max_chars:
-        value = value[: max_chars - 3].rstrip() + "..."
-    return value
+def current_alert():
+    if last_error:
+        return trim(last_error, 22), RED
+    if latest_hum is not None and latest_hum < 40:
+        return "Low humidity", YELLOW
+    if latest_hum is not None and latest_hum > 65:
+        return "Humid room", YELLOW
+    if outdoor_ok and "rain" in str(outdoor_main).lower():
+        return "Rain outside", BLUE
+    if send_ok:
+        return "All good", GREEN
+    return "Waiting upload", MUTED
 
 
-def url_encode(text):
-    encoded = ""
-    safe = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~"
-    for char in str(text):
-        if char in safe:
-            encoded += char
-        elif char == " ":
-            encoded += "%20"
-        elif char == ".":
-            encoded += "."
-        elif char == ",":
-            encoded += "%2C"
-        elif char == "%":
-            encoded += "%25"
-        else:
-            encoded += "%20"
-    return encoded
+def render_data(full=True):
+    if full:
+        draw_base("Cloud Weather", HEADER)
+        fill_rect(10, 42, 145, 84, PANEL)
+        fill_rect(165, 42, 145, 84, PANEL)
+        fill_rect(10, 136, 300, 62, PANEL_2)
 
-
-def render_sensor_page():
-    use_dashboard_text_layout()
-    draw_data_frame()
-    title.setText("Cloud Weather")
-    set_text_color(title, TEXT)
-    wifi_text = "connected" if wifi_connected else "not connected"
-    upload_text = "BQ ok" if last_send_ok else "BQ wait"
-    weather_text = outdoor_main if outdoor_ok else outdoor_status
-    set_lines(
-        "INDOOR",
-        display_value(latest_temp, " C") + "   " + display_value(latest_hum, "%"),
-        "Motion: " + ("yes" if latest_motion else "no"),
-        "OUTDOOR",
-        str(outdoor_temp) + " C   " + str(outdoor_hum) + "%",
-        str(weather_text),
-    )
+    set_label(line1, "INDOOR", BLUE)
+    set_label(line2, display_value(latest_temp, " C") + "   " + display_value(latest_hum, "%"), WHITE)
     if SENSOR_MODE == "co2":
-        line2.setText("CO2 " + display_value(latest_co2, " ppm"))
-    set_text_color(line1, BLUE)
-    set_text_color(line2, TEXT)
-    set_text_color(line3, MUTED)
-    set_text_color(line4, GREEN)
-    set_text_color(line5, TEXT)
-    set_text_color(line6, MUTED)
-    footer.setText("A: Forecast")
-    alert_text, alert_color = current_alert()
-    status_line.setText(alert_text + "    " + upload_text)
-    set_text_color(status_line, alert_color)
-    set_text_color(footer, MUTED)
+        set_label(line3, "CO2 " + display_value(latest_co2, " ppm"), MUTED)
+    else:
+        set_label(line3, "Motion " + ("yes" if latest_motion else "no"), MUTED)
+    set_label(line4, "OUTDOOR", GREEN)
+    set_label(line5, str(outdoor_temp) + " C   " + str(outdoor_hum) + "%", WHITE)
+    set_label(line6, trim(str(outdoor_main) + "  wind " + str(outdoor_wind) + " m/s", 36), MUTED)
+    alert, color = current_alert()
+    set_label_on(status, alert, WHITE, HEADER)
+    set_label_on(footer, BUTTON_PAGE + ":forecast   " + BUTTON_NEXT + ":refresh", MUTED, FOOTER)
 
 
-def reset_text_colors():
-    set_text_color(title, TEXT)
-    set_text_color(line1, TEXT)
-    set_text_color(line2, TEXT)
-    set_text_color(line3, TEXT)
-    set_text_color(line4, TEXT)
-    set_text_color(line5, TEXT)
-    set_text_color(line6, TEXT)
-    set_text_color(status_line, MUTED)
-    set_text_color(footer, MUTED)
+def forecast_line(index):
+    if index >= len(forecast_days):
+        return "--", ""
+    item = forecast_days[index]
+    date = str(item.get("date", ""))
+    if len(date) >= 10:
+        date = date[5:10]
+    try:
+        high = round(float(item.get("temp_max", 0)), 1)
+        low = round(float(item.get("temp_min", 0)), 1)
+        temps = str(high) + "/" + str(low) + " C"
+    except Exception:
+        temps = "--"
+    return date + "  " + temps, str(item.get("weather_main", ""))
 
 
-def render_question_page():
-    use_assistant_text_layout()
-    draw_question_frame()
-    reset_text_colors()
-    title.setText("Ask Assistant")
-    item = QUESTIONS[selected_question]
-    lines = short_lines(item[1], 28, 1)
-    set_lines(
-        item[0],
-        lines[0],
-        "",
-        "",
-        "",
-        "",
-    )
-    set_text_color(line1, BLUE)
-    set_text_color(line2, TEXT)
-    set_text_color(line3, TEXT)
-    set_text_color(line4, MUTED)
-    footer.setText("A:data     B:next     C:ask")
+def render_forecast(full=True):
+    if full:
+        draw_base("Forecast", 0x2563EB)
+        fill_rect(10, 45, 300, 43, PANEL)
+        fill_rect(10, 101, 300, 43, PANEL)
+        fill_rect(10, 157, 300, 43, PANEL)
+
+    d0, w0 = forecast_line(0)
+    d1, w1 = forecast_line(1)
+    d2, w2 = forecast_line(2)
+    set_label(line1, d0, BLUE)
+    set_label(line2, w0, WHITE)
+    set_label(line3, d1, BLUE)
+    set_label(line4, w1, WHITE)
+    set_label(line5, d2, BLUE)
+    set_label(line6, w2, WHITE)
+    set_label_on(footer, BUTTON_PAGE + ":assistant   " + BUTTON_NEXT + ":refresh", MUTED, FOOTER)
 
 
-def render_forecast_page():
-    use_forecast_text_layout()
-    draw_forecast_frame()
-    reset_text_colors()
-    title.setText("Forecast")
-    d0, t0 = forecast_line(0)
-    d1, t1 = forecast_line(1)
-    d2, t2 = forecast_line(2)
-    set_lines(d0, t0, d1, t1, d2, t2)
-    set_text_color(line1, BLUE)
-    set_text_color(line2, MUTED)
-    set_text_color(line3, BLUE)
-    set_text_color(line4, MUTED)
-    set_text_color(line5, BLUE)
-    set_text_color(line6, MUTED)
-    footer.setText("A: Assistant")
+def render_assistant(full=True):
+    if full:
+        draw_base("Assistant", PURPLE)
+        fill_rect(10, 45, 300, 153, PANEL)
 
-
-def render_assistant_page():
-    if not answer_ready:
-        render_question_page()
+    if answer_ready:
+        lines = wrap_text(last_answer, 31, 5)
+        set_label(line1, "Answer", GREEN)
+        set_label(line2, lines[0], WHITE)
+        set_label(line3, lines[1], WHITE)
+        set_label(line4, lines[2], WHITE)
+        set_label(line5, lines[3], WHITE)
+        set_label(line6, lines[4], WHITE)
+        set_label_on(
+            footer,
+            BUTTON_PAGE + ":data   " + BUTTON_NEXT + ":next   " + BUTTON_ACTION + ":speak",
+            MUTED,
+            FOOTER,
+        )
         return
 
-    use_full_text_layout()
-    draw_answer_frame()
-    reset_text_colors()
-    title.setText("Answer")
-    lines = short_lines(fit_answer(last_answer, 115), 29, 4)
-    set_lines(
-        QUESTIONS[selected_question][0],
-        lines[0],
-        lines[1],
-        lines[2],
-        lines[3],
-        "",
-    )
-    set_text_color(line1, GREEN)
-    footer.setText("A:data  B:next  C:speak")
-
-
-def render_page():
-    if current_page == PAGE_ASSISTANT:
-        render_assistant_page()
-    elif current_page == PAGE_FORECAST:
-        render_forecast_page()
+    q = QUESTIONS[question_index]
+    if last_transcript:
+        lines = wrap_text("Heard: " + last_transcript, 31, 4)
+        set_label(line1, q[0], BLUE)
+        set_label(line2, lines[0], WHITE)
+        set_label(line3, lines[1], WHITE)
+        set_label(line4, lines[2], WHITE)
+        set_label(line5, lines[3], WHITE)
     else:
-        render_sensor_page()
+        set_label(line1, q[0], BLUE)
+        set_label(line2, trim(q[1], 29), WHITE)
+        set_label(line3, "", WHITE)
+        if q[2] == "VOICE_RECORD":
+            set_label(line4, "Press C, then speak", YELLOW)
+        else:
+            set_label(line4, "Press C to ask", MUTED)
+        set_label(line5, "", WHITE)
+    set_label(line6, "", WHITE)
+    set_label_on(
+        footer,
+        BUTTON_PAGE + ":data   " + BUTTON_NEXT + ":next   " + BUTTON_ACTION + ":ask",
+        MUTED,
+        FOOTER,
+    )
 
+
+def render(full=True):
+    if page == PAGE_DATA:
+        render_data(full)
+    elif page == PAGE_FORECAST:
+        render_forecast(full)
+    else:
+        render_assistant(full)
+
+
+# ---------------------------------------------------------------------------
+# Connectivity and sensors
+# ---------------------------------------------------------------------------
 
 def connect_wifi():
-    global wifi_connected
-    if not WIFI_SSID or not WIFI_PASSWORD:
-        wifi_connected = False
-        set_lines("WiFi config missing", "Check ACTIVE_PROFILE")
+    global wifi_ok, last_error
+    draw_base("WiFi", HEADER)
+    set_label(line1, "Connecting...", BLUE)
+    set_label(line2, WIFI_SSID, WHITE)
+    set_label(line3, "Resetting WiFi", MUTED)
+
+    if network is None:
+        wifi_ok = False
+        last_error = "network missing"
+        render(True)
         return False
 
-    if wifiCfg is None:
-        wifi_connected = False
-        set_lines("wifiCfg unavailable")
-        return False
-
-    set_lines("Connecting WiFi...")
     try:
-        wifiCfg.doConnect(WIFI_SSID, WIFI_PASSWORD)
-        for _ in range(20):
-            if wifiCfg.wlan_sta.isconnected():
-                wifi_connected = True
-                render_page()
+        wlan = network.WLAN(network.STA_IF)
+        try:
+            wlan.disconnect()
+        except Exception:
+            pass
+        wlan.active(False)
+        time.sleep(1)
+        wlan.active(True)
+        wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+        for _ in range(30):
+            M5.update()
+            if wlan.isconnected():
+                wifi_ok = True
+                last_error = ""
+                try:
+                    set_label(line3, "IP " + str(wlan.ifconfig()[0]), GREEN)
+                    time.sleep(1)
+                except Exception:
+                    pass
                 return True
+            set_label(line3, "Waiting " + str(_ + 1) + "/30", MUTED)
             time.sleep(1)
-    except Exception:
-        pass
+    except Exception as exc:
+        last_error = "WiFi " + str(exc)[:20]
 
-    wifi_connected = False
-    render_page()
+    wifi_ok = False
+    set_label(line3, "WiFi failed", RED)
+    set_label(line4, trim(last_error, 28), RED)
+    time.sleep(2)
     return False
 
 
-def init_env3():
-    try:
-        return unit.get(unit.ENV3, unit.PORTA)
-    except Exception:
-        return None
-
-
-def init_pir():
-    try:
-        return unit.get(unit.PIR, unit.PORTB)
-    except Exception:
-        return None
-
-
-def init_co2():
-    try:
-        return unit.get(unit.TVOC, unit.PORTA)
-    except Exception:
+def init_sensors():
+    global env3, last_error
+    if I2C is not None and Pin is not None and ENVUnit is not None:
         try:
-            return unit.get(unit.CO2, unit.PORTA)
-        except Exception:
-            return None
+            i2c0 = I2C(0, scl=Pin(33), sda=Pin(32), freq=100000)
+            env3 = ENVUnit(i2c=i2c0, type=3)
+        except Exception as exc:
+            env3 = None
+            last_error = "ENV " + str(exc)[:18]
 
 
-def read_co2(co2_sensor):
-    if not co2_sensor:
-        return None
-
-    for attr in ["co2", "co2_ppm", "eCO2", "eco2", "CO2"]:
+def read_sensors():
+    global latest_temp, latest_hum, latest_motion
+    if env3 is not None:
         try:
-            value = getattr(co2_sensor, attr)
-            if value is not None:
-                return int(float(value))
+            latest_temp = round(float(env3.read_temperature()), 1)
+            latest_hum = round(float(env3.read_humidity()), 1)
         except Exception:
             pass
-    return None
+
+    latest_motion = False
+    if Pin is not None:
+        try:
+            motion_pin = Pin(36, mode=Pin.IN)
+            latest_motion = bool(motion_pin.value())
+        except Exception:
+            latest_motion = False
 
 
-def read_sensors(env3_sensor, pir_sensor, co2_sensor):
-    temp = None
-    hum = None
-    co2 = None
-    motion = False
-
-    if SENSOR_MODE == "env3" and env3_sensor:
-        temp = round(float(env3_sensor.temperature), 1)
-        hum = round(float(env3_sensor.humidity), 1)
-
-    if SENSOR_MODE == "co2":
-        co2 = read_co2(co2_sensor)
-
-    if pir_sensor:
-        motion = True if pir_sensor.state == 1 else False
-
-    return temp, hum, motion, co2
-
-
-def send_data_to_api(temp, hum, motion, co2):
+def send_sensor_reading():
+    global send_ok, last_error
     payload = {
         "device_id": DEVICE_ID,
-        "temperature_c": temp,
-        "humidity_percent": hum,
-        "motion_detected": motion,
-        "co2_source": "sensor" if co2 is not None else "not measured",
+        "temperature_c": latest_temp,
+        "humidity_percent": latest_hum,
+        "motion_detected": latest_motion,
+        "co2_source": "not measured",
     }
-    if co2 is not None:
-        payload["co2_ppm"] = co2
+    if latest_co2 is not None:
+        payload["co2_ppm"] = latest_co2
+        payload["co2_source"] = "sensor"
 
     try:
-        response = urequests.post(
+        response = requests.post(
             SENSOR_URL,
             json=payload,
             headers={"Content-Type": "application/json"},
+            timeout=5,
         )
-        status_code = response.status_code
-        response.close()
-        return status_code >= 200 and status_code < 300
-    except Exception:
-        return False
-
-
-def fetch_outdoor_weather():
-    global outdoor_temp, outdoor_hum, outdoor_wind, outdoor_main, outdoor_city, outdoor_ok, outdoor_status
-    try:
-        response = urequests.get(WEATHER_URL)
-        if response.status_code < 200 or response.status_code >= 300:
-            status_code = response.status_code
-            response.close()
-            outdoor_ok = False
-            outdoor_status = "HTTP " + str(status_code)
-            return False
-        data = response.json()
-        response.close()
-        outdoor_temp = str(round(float(data.get("temperature_c", 0)), 1))
-        outdoor_hum = str(int(data.get("humidity_pct", 0)))
-        outdoor_wind = str(round(float(data.get("wind_speed_ms", 0)), 1))
-        outdoor_main = str(data.get("weather_main", "Weather"))
-        outdoor_city = str(data.get("city", "Outdoor"))
-        outdoor_ok = True
-        outdoor_status = "online"
-        return True
-    except Exception:
-        outdoor_ok = False
-        outdoor_status = "request failed"
-        return False
-
-
-def fetch_forecast():
-    global forecast_days, forecast_ok, forecast_status
-    try:
-        response = urequests.get(FORECAST_URL)
-        if response.status_code < 200 or response.status_code >= 300:
-            status_code = response.status_code
-            response.close()
-            forecast_ok = False
-            forecast_status = "HTTP " + str(status_code)
-            return False
-        forecast_days = response.json()
-        response.close()
-        forecast_ok = True
-        forecast_status = "online"
-        return True
-    except Exception:
-        forecast_ok = False
-        forecast_status = "request failed"
-        return False
-
-
-def ask_cloud_assistant():
-    global answer_ready, last_answer, last_speech
-    try:
-        answer_ready = True
-        last_answer = "Asking cloud..."
-        last_speech = ""
-        render_assistant_page()
-        question = QUESTIONS[selected_question][2]
-        url = (
-            DEVICE_SUMMARY_URL
-            + "?device_id="
-            + DEVICE_ID
-            + "&hours=24&question="
-            + url_encode(question)
-        )
-        response = urequests.get(url)
-        data = response.json()
-        response.close()
-        last_answer = fit_answer(data.get("answer", "No answer returned."))
-        last_speech = fit_answer(data.get("speech", last_answer), 80)
-    except Exception:
-        last_answer = "Assistant request failed."
-        last_speech = ""
-    render_assistant_page()
-
-
-def play_last_answer():
-    global last_answer
-    if not answer_ready or not last_answer:
-        last_answer = "Ask a question first."
-        render_assistant_page()
-        return
-
-    speech_text = last_speech or last_answer
-    if len(speech_text) > 80:
-        speech_text = speech_text[:77] + "..."
-
-    try:
-        set_lines("TTS: requesting...", "", "", "", "")
-        url = DEVICE_TTS_URL + "?text=" + url_encode(speech_text)
-        response = urequests.get(url)
-        if response.status_code < 200 or response.status_code >= 300:
-            status_code = response.status_code
-            response.close()
-            last_answer = "TTS HTTP " + str(status_code)
-            render_assistant_page()
-            return
-    except Exception:
-        last_answer = "TTS request failed."
-        render_assistant_page()
-        return
-
-    try:
-        set_lines("TTS: saving WAV...", "", "", "", "")
-        audio_path = "/flash/assistant.wav"
-        with open(audio_path, "wb") as audio_file:
-            audio_file.write(response.content)
-        response.close()
-    except Exception:
+        send_ok = response.status_code >= 200 and response.status_code < 300
         try:
             response.close()
         except Exception:
             pass
-        last_answer = "TTS save failed."
-        render_assistant_page()
-        return
+        if not send_ok:
+            last_error = "BQ HTTP " + str(response.status_code)
+    except Exception as exc:
+        send_ok = False
+        last_error = "Send " + str(exc)[:18]
 
-    try:
-        set_lines("TTS: playing...", "", "", "", "")
-        speaker.setVolume(SPEAKER_VOLUME)
-    except Exception:
-        pass
 
+def fetch_weather():
+    global outdoor_ok, outdoor_temp, outdoor_hum, outdoor_wind, outdoor_main, outdoor_city, last_error
     try:
-        speaker.set_vol(SPEAKER_VOLUME)
-    except Exception:
-        pass
-
-    try:
-        speaker.setVolume(100)
-    except Exception:
-        pass
-
-    try:
-        speaker.playWAV(audio_path)
-        render_assistant_page()
-        return
-    except Exception:
-        try:
-            speaker.playWAV(audio_path, volume=SPEAKER_VOLUME)
-            render_assistant_page()
+        response = requests.get(WEATHER_URL, timeout=5)
+        if response.status_code == 200:
+            data = get_json_response(response)
+            outdoor_temp = str(round(float(data.get("temperature_c", 0)), 1))
+            outdoor_hum = str(int(float(data.get("humidity_pct", 0))))
+            outdoor_wind = str(round(float(data.get("wind_speed_ms", 0)), 1))
+            outdoor_main = str(data.get("weather_main") or data.get("weather_description") or "Weather")
+            outdoor_city = str(data.get("city") or "Outdoor")
+            outdoor_ok = True
             return
+        last_error = "Weather HTTP " + str(response.status_code)
+        try:
+            response.close()
         except Exception:
+            pass
+    except Exception as exc:
+        last_error = "Weather " + str(exc)[:15]
+    outdoor_ok = False
+
+
+def fetch_forecast():
+    global forecast_days
+    try:
+        response = requests.get(FORECAST_URL, timeout=5)
+        if response.status_code == 200:
+            forecast_days = get_json_response(response)
+        else:
             try:
-                speaker.playWAV(audio_path, volume=100)
-                render_assistant_page()
-                return
+                response.close()
             except Exception:
                 pass
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Assistant, STT, TTS
+# ---------------------------------------------------------------------------
+
+def ask_text(question):
+    global answer_ready, last_answer, last_error
+    answer_ready = False
+    last_answer = "Thinking..."
+    render_assistant(True)
+    set_label(line2, "Contacting assistant...", YELLOW)
+    set_label(line3, "Please wait", MUTED)
+    try:
+        response = requests.post(
+            ASK_URL,
+            json={"question": question, "device_id": DEVICE_ID, "hours": 24},
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+        data = get_json_response(response)
+        last_answer = trim_sentence(data.get("speech") or data.get("answer", "No answer."), 210)
+        answer_ready = True
+        last_error = ""
+    except Exception as exc:
+        last_answer = "Assistant failed."
+        last_error = "Ask " + str(exc)[:18]
+    render_assistant(True)
+
+
+def amplify_pcm(buffer, gain):
+    if gain <= 1:
+        return
+    for index in range(0, len(buffer) - 1, 2):
+        sample = buffer[index] | (buffer[index + 1] << 8)
+        if sample >= 32768:
+            sample -= 65536
+        sample = int(sample * gain)
+        if sample > 32767:
+            sample = 32767
+        elif sample < -32768:
+            sample = -32768
+        if sample < 0:
+            sample += 65536
+        buffer[index] = sample & 0xFF
+        buffer[index + 1] = (sample >> 8) & 0xFF
+
+
+def record_pcm():
+    try:
+        Mic.deinit()
+    except Exception:
+        pass
+    Mic.begin()
+    sample_rate = 8000
+    audio = bytearray(sample_rate * 2 * RECORD_SECONDS)
+    Mic.record(audio, sample_rate, False)
+    time.sleep(RECORD_SECONDS + 0.2)
+    try:
+        Mic.end()
+    except Exception:
+        pass
+    amplify_pcm(audio, 3)
+    return audio
+
+
+def ask_by_voice():
+    global answer_ready, last_answer, last_transcript, last_error
+    answer_ready = False
+    last_transcript = ""
+    last_answer = ""
+    set_label(line1, "Voice", BLUE)
+    set_label(line2, "Speak now...", YELLOW)
+    set_label(line3, str(RECORD_SECONDS) + " seconds", WHITE)
+    set_label(line4, "", WHITE)
+    set_label(line5, "", WHITE)
 
     try:
-        speaker.setVolume(SPEAKER_VOLUME)
-        speaker.playWAV(audio_path)
-        speaker.playWAV(audio_path)
-        render_assistant_page()
+        audio = record_pcm()
+    except Exception as exc:
+        last_error = "Mic " + str(exc)[:20]
+        last_answer = "Microphone failed."
+        render_assistant(True)
         return
-    except Exception:
-        try:
-            speaker.setVolume(100)
-            speaker.playWAV(audio_path)
-            speaker.playWAV(audio_path)
-            render_assistant_page()
+
+    if not any(audio):
+        last_error = "Microphone silent"
+        last_answer = "No audio recorded."
+        render_assistant(True)
+        return
+
+    set_label(line2, "Transcribing...", YELLOW)
+    set_label(line3, "Cloud STT + assistant", MUTED)
+    try:
+        url = (
+            DEVICE_ASK_URL
+            + "?language_code="
+            + STT_LANGUAGE
+            + "&device_id="
+            + DEVICE_ID
+            + "&hours=24"
+        )
+        response = requests.post(
+            url,
+            data=audio,
+            headers={"Content-Type": "audio/l16"},
+            timeout=25,
+        )
+        status_code = response.status_code
+        data = get_json_response(response)
+        if status_code < 200 or status_code >= 300:
+            last_error = "STT HTTP " + str(status_code)
+            last_answer = data.get("error", "Speech not understood.")
+            render_assistant(True)
             return
-        except Exception:
-            try:
-                speaker.tone(880, 150)
-            except Exception:
-                pass
-            last_answer = "WAV playback unsupported."
-            render_assistant_page()
-
-
-def on_button_a():
-    global current_page
-    current_page = (current_page + 1) % 3
-    render_page()
-
-
-def on_button_b():
-    global answer_ready, last_answer, last_speech, selected_question
-    if current_page == PAGE_ASSISTANT:
-        selected_question = (selected_question + 1) % len(QUESTIONS)
+        last_transcript = trim(data.get("transcript", ""), 80)
         answer_ready = False
-        last_answer = "Select a question."
-        last_speech = ""
-        render_assistant_page()
+        render_assistant(True)
+        time.sleep(SHOW_TRANSCRIPT_SECONDS)
+        last_answer = trim_sentence(data.get("speech") or data.get("answer", "No answer."), 210)
+        answer_ready = True
+        last_error = ""
+    except Exception as exc:
+        last_error = "STT " + str(exc)[:20]
+        last_answer = "Speech request failed."
+    render_assistant(True)
 
 
-def on_button_c():
-    global pending_action
-    if current_page == PAGE_ASSISTANT:
-        pending_action = "speak" if answer_ready else "ask"
+def play_mood_music(condition=""):
+    mood = str(condition or "").lower()
+    if "rain" in mood or "drizzle" in mood:
+        notes = [(392, 160), (330, 180), (294, 220), (330, 180)]
+    elif "clear" in mood or "sun" in mood:
+        notes = [(523, 120), (659, 120), (784, 180), (659, 120), (784, 220)]
+    elif "cloud" in mood:
+        notes = [(392, 160), (440, 160), (494, 200), (440, 200)]
+    else:
+        notes = [(440, 140), (523, 140), (587, 180), (523, 180)]
 
-
-def register_buttons():
     try:
-        btnA.wasPressed(on_button_a)
-        btnB.wasPressed(on_button_b)
-        btnC.wasPressed(on_button_c)
+        Speaker.begin()
+        try:
+            Speaker.setVolumePercentage(SPEAKER_VOLUME_PERCENT)
+        except Exception:
+            pass
+        for freq, duration in notes:
+            try:
+                Speaker.tone(freq, duration)
+            except Exception:
+                try:
+                    Speaker.playTone(freq, duration)
+                except Exception:
+                    pass
+            time.sleep_ms(duration + 40)
+        try:
+            Speaker.end()
+        except Exception:
+            pass
     except Exception:
         pass
 
 
-def main_loop():
-    global latest_temp, latest_hum, latest_motion, latest_co2, last_send_ok, last_send_ms, last_weather_ms, last_render_ms, pending_action
-
-    render_page()
-    connect_wifi()
-    fetch_outdoor_weather()
-    fetch_forecast()
-    last_weather_ms = time.ticks_ms()
-    env3_sensor = init_env3() if SENSOR_MODE == "env3" else None
-    co2_sensor = init_co2() if SENSOR_MODE == "co2" else None
-    pir_sensor = init_pir()
-    register_buttons()
-
-    while True:
-        latest_temp, latest_hum, latest_motion, latest_co2 = read_sensors(env3_sensor, pir_sensor, co2_sensor)
-
-        now_ms = time.ticks_ms()
-        if time.ticks_diff(now_ms, last_weather_ms) >= WEATHER_REFRESH_SECONDS * 1000:
-            fetch_outdoor_weather()
-            fetch_forecast()
-            last_weather_ms = now_ms
-
-        if time.ticks_diff(now_ms, last_send_ms) >= SEND_INTERVAL_SECONDS * 1000:
-            ok = send_data_to_api(latest_temp, latest_hum, latest_motion, latest_co2)
-            last_send_ok = ok
-            last_send_ms = now_ms
-
-        if pending_action == "ask":
-            pending_action = None
-            ask_cloud_assistant()
-        elif pending_action == "speak":
-            pending_action = None
-            play_last_answer()
-
-        if current_page != PAGE_ASSISTANT and time.ticks_diff(now_ms, last_render_ms) >= DATA_RENDER_SECONDS * 1000:
-            render_page()
-            last_render_ms = now_ms
-
-        time.sleep(0.5)
+def estimate_wav_seconds(audio_bytes):
+    """Estimate WAV duration so TTS is not interrupted by music."""
+    try:
+        # Google Cloud TTS returns LINEAR16 WAV. In this project it is usually
+        # 24 kHz, mono, 16-bit, so about 48 KB per second plus a tiny header.
+        seconds = len(audio_bytes) // 48000
+        if len(audio_bytes) % 48000:
+            seconds += 1
+        if seconds < 3:
+            seconds = 3
+        if seconds > 18:
+            seconds = 18
+        return seconds
+    except Exception:
+        pass
+    return 8
 
 
-main_loop()
+def speak_text(text):
+    global last_error
+    text = trim_sentence(text, 150)
+    if not text:
+        return False
+    set_label(line1, "Speaking...", GREEN)
+    set_label(line2, "", WHITE)
+    set_label(line3, "Loading audio...", MUTED)
+    try:
+        response = requests.get(DEVICE_TTS_URL + "?text=" + url_encode(text), timeout=15)
+        if response.status_code != 200:
+            last_error = "TTS HTTP " + str(response.status_code)
+            try:
+                response.close()
+            except Exception:
+                pass
+            render_assistant(True)
+            return False
+        audio_path = "/flash/assistant.wav"
+        audio_bytes = response.content
+        with open(audio_path, "wb") as audio_file:
+            audio_file.write(audio_bytes)
+        try:
+            response.close()
+        except Exception:
+            pass
+        Speaker.begin()
+        set_label(line3, "Playing on Core2", GREEN)
+        try:
+            Speaker.setVolumePercentage(SPEAKER_VOLUME_PERCENT)
+        except Exception:
+            pass
+        try:
+            Speaker.playWAV(audio_path)
+        except Exception:
+            try:
+                with open(audio_path, "rb") as audio_file:
+                    raw = audio_file.read()
+                Speaker.playRaw(raw, 24000)
+            except Exception:
+                pass
+        time.sleep(estimate_wav_seconds(audio_bytes) + 1)
+        try:
+            Speaker.end()
+        except Exception:
+            pass
+    except Exception as exc:
+        last_error = "TTS " + str(exc)[:20]
+        return False
+    render_assistant(True)
+    return True
+
+
+def speak_answer():
+    speak_text(last_answer)
+
+
+def play_spotify_mood():
+    global last_error
+    if not SPOTIFY_MUSIC_ENABLED:
+        return False
+    set_label(line1, "Spotify", GREEN)
+    set_label(line2, "Starting playlist...", YELLOW)
+    set_label(line3, trim(str(outdoor_main) + " " + str(outdoor_temp) + " C", 30), MUTED)
+    try:
+        url = (
+            MUSIC_MOOD_URL
+            + "?mood="
+            + url_encode(outdoor_main)
+            + "&temperature_c="
+            + url_encode(outdoor_temp)
+        )
+        response = requests.get(url, timeout=SPOTIFY_TIMEOUT_SECONDS)
+        ok = response.status_code >= 200 and response.status_code < 300
+        if not ok:
+            last_error = "Spotify HTTP " + str(response.status_code)
+            try:
+                set_label(line2, last_error, RED)
+                set_label(line3, trim(response.text, 32), MUTED)
+            except Exception:
+                pass
+        try:
+            response.close()
+        except Exception:
+            pass
+        if ok:
+            set_label(line2, "Spotify started", GREEN)
+            time.sleep(1)
+        return ok
+    except Exception as exc:
+        last_error = "Spotify " + str(exc)[:18]
+        set_label(line2, "Spotify failed", RED)
+        set_label(line3, trim(str(exc), 32), MUTED)
+        time.sleep(2)
+        return False
+
+
+def run_morning_routine():
+    global page, answer_ready, last_answer, last_transcript, last_error, last_morning_ms
+    if not MORNING_ROUTINE_ENABLED:
+        return
+    if elapsed_ms(last_morning_ms) < MORNING_COOLDOWN_SECONDS * 1000:
+        return
+
+    last_morning_ms = now_ms()
+    page = PAGE_ASSISTANT
+    answer_ready = False
+    last_transcript = ""
+    last_answer = "Preparing morning briefing..."
+    render_assistant(True)
+    set_label(line1, "Smart Home", GREEN)
+    set_label(line2, "Motion detected", YELLOW)
+    set_label(line3, "Preparing briefing...", MUTED)
+
+    try:
+        fetch_weather()
+        fetch_forecast()
+    except Exception:
+        pass
+
+    last_answer = get_ai_morning_briefing()
+    answer_ready = True
+    last_error = ""
+
+    render_assistant(True)
+    speak_text(last_answer)
+    if not play_spotify_mood():
+        if LOCAL_MUSIC_FALLBACK_ENABLED:
+            play_mood_music(outdoor_main)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+connect_wifi()
+init_sensors()
+read_sensors()
+send_sensor_reading()
+fetch_weather()
+fetch_forecast()
+render(True)
+
+last_send_ms = now_ms()
+last_weather_ms = now_ms()
+last_render_ms = now_ms()
+last_button_ms = now_ms()
+last_morning_ms = -MORNING_COOLDOWN_SECONDS * 1000
+
+while True:
+    M5.update()
+
+    if elapsed_ms(last_button_ms) >= 350:
+        raw_pressed = read_button_click()
+        pressed = None
+        if raw_pressed == BUTTON_PAGE:
+            pressed = "PAGE"
+        elif raw_pressed == BUTTON_NEXT:
+            pressed = "NEXT"
+        elif raw_pressed == BUTTON_ACTION:
+            pressed = "ACTION"
+
+        if pressed:
+            last_button_ms = now_ms()
+
+        if pressed == "PAGE":
+            page = (page + 1) % 3
+            render(True)
+
+        elif pressed == "NEXT":
+            if page == PAGE_DATA:
+                set_label_on(status, "refresh", WHITE, HEADER)
+                fetch_weather()
+                fetch_forecast()
+                send_sensor_reading()
+                render(True)
+            elif page == PAGE_ASSISTANT:
+                question_index = (question_index + 1) % len(QUESTIONS)
+                answer_ready = False
+                last_answer = "Select a question."
+                last_transcript = ""
+                render(True)
+            elif page == PAGE_FORECAST:
+                set_label_on(status, "refresh", WHITE, 0x2563EB)
+                fetch_forecast()
+                render(True)
+
+        elif pressed == "ACTION":
+            if page == PAGE_ASSISTANT:
+                current_question = QUESTIONS[question_index]
+                if answer_ready:
+                    speak_answer()
+                elif current_question[2] == "VOICE_RECORD":
+                    ask_by_voice()
+                else:
+                    ask_text(current_question[2])
+
+    try:
+        read_sensors()
+    except Exception:
+        pass
+
+    if latest_motion and not previous_motion:
+        run_morning_routine()
+    previous_motion = latest_motion
+
+    if elapsed_ms(last_send_ms) >= SEND_SECONDS * 1000:
+        send_sensor_reading()
+        last_send_ms = now_ms()
+        if page == PAGE_DATA:
+            render(False)
+
+    if elapsed_ms(last_weather_ms) >= WEATHER_SECONDS * 1000:
+        fetch_weather()
+        fetch_forecast()
+        last_weather_ms = now_ms()
+        if page in (PAGE_DATA, PAGE_FORECAST):
+            render(False)
+
+    if elapsed_ms(last_render_ms) >= RENDER_SECONDS * 1000:
+        last_render_ms = now_ms()
+        if page == PAGE_DATA:
+            render(False)
+
+    time.sleep_ms(50)
+

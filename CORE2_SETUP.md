@@ -1,8 +1,8 @@
 # Core2 Setup
 
-This is the current Core2 workflow for the project.
+This project uses UIFlow 2 for the final Core2 firmware.
 
-## 1. Start Flask
+## 1. Start The Local Service
 
 On the laptop:
 
@@ -10,48 +10,42 @@ On the laptop:
 python -m middleware.app
 ```
 
-Check it:
-
-```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:5000/api/health
-```
+The Core2 and laptop must be on the same reachable network.
 
 ## 2. Find The Laptop IP
 
-The Core2 cannot use `127.0.0.1`. Find the laptop IPv4 address:
+Use:
 
 ```powershell
 ipconfig
 ```
 
-Example API base URL:
+Use the IPv4 address from the active WiFi network in the Core2 API URL:
 
 ```text
-http://130.223.162.160:5000
+http://YOUR_COMPUTER_IP:5000
 ```
 
-The Core2 and laptop must be on the same reachable network.
+## 3. Prepare The UIFlow 2 File
 
-## 3. Use `main_local.py`
-
-Keep the public-safe version in git:
+The public firmware is:
 
 ```text
 device/main.py
 ```
 
-For real WiFi passwords and current laptop IP, use:
+It contains placeholder WiFi/API values. For real testing, keep a private local
+copy such as:
 
 ```text
-device/main_local.py
+device/main_uiflow2_local.py
 ```
 
-`main_local.py` is ignored by git. Paste/upload it to FlowM5Stack as the Core2
-`main.py`.
+Local files matching `device/*_local*.py` are ignored by Git.
 
-## 4. Choose The Network Profile
+## 4. Select The Profile
 
-At the top of `main_local.py`, update:
+In the local copy, update:
 
 ```python
 ACTIVE_PROFILE = "hotspot"
@@ -63,9 +57,17 @@ or:
 ACTIVE_PROFILE = "university"
 ```
 
-Make sure the selected profile has the right SSID, password, and API URL.
+Then set the matching SSID, password, and API URL in `WIFI_PROFILES`.
 
-## 5. Choose The Sensor Mode
+## 5. Upload With UIFlow 2
+
+1. Open UIFlow 2.
+2. Select Core2.
+3. Connect through USB.
+4. Paste the local firmware copy as `main.py`.
+5. Run it on the device.
+
+## 6. Sensor Mode
 
 Use ENV III mode for temperature and humidity:
 
@@ -79,80 +81,28 @@ Use CO2 mode when the CO2 unit is connected on Port A:
 SENSOR_MODE = "co2"
 ```
 
-PIR motion can stay on Port B.
+Because ENV III and CO2 both use Port A, collect them in separate sessions.
 
-## 6. Core2 Pages
+## 7. Buttons
 
-Button `A` cycles pages:
+```text
+A = switch page
+B = refresh / next option
+C = action / ask / speak
+```
+
+Pages:
 
 ```text
 Data -> Forecast -> Assistant -> Data
 ```
 
-On the assistant page:
+## 8. Demo Checklist
 
-```text
-B = next question
-C = ask / speak answer
-```
-
-The assistant displays a longer answer but speaks a short `speech` summary to
-avoid huge WAV files on the Core2.
-
-## 7. Verify Data In BigQuery
-
-Recent rows:
-
-```sql
-SELECT
-  timestamp,
-  device_id,
-  temperature_c,
-  humidity_pct,
-  air_quality_index AS co2_ppm,
-  co2_source,
-  air_quality_label,
-  motion_detected
-FROM `weather-station-494408.weather_station.sensor_readings`
-ORDER BY timestamp DESC
-LIMIT 20;
-```
-
-Real CO2 rows only:
-
-```sql
-SELECT
-  timestamp,
-  device_id,
-  air_quality_index AS co2_ppm,
-  co2_source,
-  air_quality_label
-FROM `weather-station-494408.weather_station.sensor_readings`
-WHERE co2_source = "sensor"
-ORDER BY timestamp DESC
-LIMIT 50;
-```
-
-## Common Problems
-
-`WiFi failed`
-
-SSID/password is wrong, or the network is not compatible with the Core2.
-
-`Send failed`
-
-Flask is not running, the laptop IP changed, or the selected profile API URL is
-wrong.
-
-`TTS HTTP 500`
-
-Flask reached Gemini TTS but audio generation failed. Restart Flask and check
-the Flask terminal for the exact error.
-
-Outdoor weather missing
-
-Check `OWM_API_KEY` in `.env`, restart Flask, and verify:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:5000/api/weather/current
-```
+- Laptop service is running.
+- Dashboard is running.
+- Core2 is on the same network as the laptop.
+- The API URL in the Core2 local file uses the laptop IP.
+- ENV III or CO2 sensor is connected to Port A.
+- PIR motion sensor is connected.
+- Spotify app is open if testing mood music.

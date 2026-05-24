@@ -5,7 +5,7 @@ import time
 
 from flask import Blueprint, jsonify, request, send_file
 
-from services.voice_service import answer_question, fallback_answer, synthesize_speech
+from services.voice_service import answer_question, fallback_answer, synthesize_speech, transcribe_speech
 
 voice_bp = Blueprint("voice_bp", __name__)
 
@@ -29,6 +29,26 @@ def _device_safe_text(text, max_chars=80):
     return value
 
 
+def _complete_device_sentence(text, max_chars=140):
+    value = _device_safe_text(text, max_chars=max_chars * 2)
+    if len(value) <= max_chars:
+        if value and value[-1] not in ".!?":
+            value += "."
+        return value
+
+    cutoff = -1
+    for mark in [". ", "! ", "? "]:
+        position = value.rfind(mark, 0, max_chars)
+        if position > cutoff:
+            cutoff = position + 1
+
+    if cutoff >= 35:
+        return value[:cutoff].strip()
+
+    shortened = value[:max_chars].rstrip(" ,.;:")
+    return shortened + "."
+
+
 def _speech_summary(text, question="", max_chars=70):
     q = str(question or "").lower()
     value = _device_safe_text(text, max_chars=180)
@@ -42,7 +62,7 @@ def _speech_summary(text, question="", max_chars=70):
         if parts and parts[0].strip():
             value = parts[0].strip() + "."
 
-    return _device_safe_text(value, max_chars=max_chars)
+    return _complete_device_sentence(value, max_chars=max_chars)
 
 
 def _synthesize_with_retry(text, attempts=2):
@@ -87,7 +107,7 @@ def text_to_speech():
 
 @voice_bp.route("/device-tts", methods=["GET"])
 def device_text_to_speech():
-    text = _device_safe_text(request.args.get("text", ""), max_chars=80)
+    text = _device_safe_text(request.args.get("text", ""), max_chars=180)
 
     try:
         audio, mimetype, provider = _synthesize_with_retry(text=text)
@@ -108,7 +128,106 @@ def device_text_to_speech():
 
 @voice_bp.route("/stt", methods=["POST"])
 def speech_to_text():
-    return jsonify({"message": "Speech-to-text is not implemented yet"}), 501
+    audio_file = request.files.get("audio")
+    language_code = request.form.get("language_code") or request.args.get("language_code") or None
+
+    if audio_file:
+        audio_bytes = audio_file.read()
+        content_type = audio_file.content_type
+    else:
+        audio_bytes = request.get_data()
+        content_type = request.content_type
+
+    try:
+        result = transcribe_speech(
+            audio_bytes=audio_bytes,
+            language_code=language_code,
+            content_type=content_type,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Speech-to-text failed: {exc}"}), 500
+
+    return jsonify(result), 200
+
+
+@voice_bp.route("/device-stt", methods=["POST"])
+def device_speech_to_text():
+    """Speech-to-text endpoint for Core2/UIFlow.
+
+    Send raw WAV bytes in the request body. Optional query param:
+    ?language_code=en-US or fr-FR
+    """
+    language_code = request.args.get("language_code") or request.form.get("language_code") or None
+    audio_bytes = request.get_data()
+    content_type = request.content_type or "audio/wav"
+
+    try:
+        result = transcribe_speech(
+            audio_bytes=audio_bytes,
+            language_code=language_code,
+            content_type=content_type,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Device speech-to-text failed: {exc}"}), 500
+
+    return jsonify(result), 200
+
+
+@voice_bp.route("/device-audio-question", methods=["POST"])
+def device_audio_question():
+    """Core2 endpoint: raw WAV audio -> transcript -> assistant answer."""
+    language_code = request.args.get("language_code") or request.form.get("language_code") or None
+    device_id = request.args.get("device_id") or request.form.get("device_id") or None
+    content_type = request.content_type or "audio/wav"
+    audio_bytes = request.get_data()
+
+    try:
+        hours = int(request.args.get("hours") or request.form.get("hours") or 24)
+    except (TypeError, ValueError):
+        hours = 24
+
+    try:
+        stt_result = transcribe_speech(
+            audio_bytes=audio_bytes,
+            language_code=language_code,
+            content_type=content_type,
+        )
+        transcript = stt_result.get("transcript", "").strip()
+        if not transcript:
+            return jsonify({
+                "error": "No speech detected.",
+                "transcript": "",
+                "provider": stt_result.get("provider", "google-cloud-stt"),
+            }), 422
+
+        answer_result = answer_question(
+            question=transcript,
+            device_id=device_id,
+            hours=hours,
+        )
+        answer = answer_result.get("answer", "")
+        q = transcript.lower()
+        broken_answer = len(answer.strip()) < 24 or answer.strip().endswith((",", ":", ";"))
+        deterministic_question = any(word in q for word in ["outside", "outdoor", "weather", "forecast"])
+        if deterministic_question or broken_answer:
+            answer = fallback_answer(transcript, answer_result.get("context", {}))
+        speech = _speech_summary(answer, question=transcript, max_chars=145)
+        return jsonify({
+            "transcript": transcript,
+            "answer": answer,
+            "speech": speech,
+            "source": answer_result.get("source", "unknown"),
+            "stt_provider": stt_result.get("provider", "google-cloud-stt"),
+            "confidence": stt_result.get("confidence"),
+        }), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Device audio question failed: {exc}"}), 500
 
 
 @voice_bp.route("/ask", methods=["POST"])

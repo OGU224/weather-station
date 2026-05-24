@@ -17,7 +17,7 @@ HUMIDITY_ALERT = 40
 
 
 def _fetch(path: str, params: dict = None):
-    """Fetch JSON from the Flask middleware. Returns None on failure."""
+    """Fetch JSON from the local station service. Returns None on failure."""
     try:
         resp = requests.get(f"{MIDDLEWARE_URL}{path}", params=params, timeout=8)
         if resp.status_code == 200:
@@ -44,27 +44,27 @@ def _row_to_sensor_payload(row):
 
 
 def _fetch_latest_sensor():
-    """Use the middleware first, then fall back to BigQuery directly."""
+    """Fetch the latest indoor reading."""
     sensor = _fetch("/api/sensors/latest")
     if sensor:
-        return sensor, "middleware"
+        return sensor, "live"
 
     try:
         from data.bigquery_client import BigQueryClient
 
         row = BigQueryClient().get_latest_sensor_reading()
-        return _row_to_sensor_payload(row), "bigquery"
+        return _row_to_sensor_payload(row), "stored"
     except Exception as exc:
         st.session_state["sensor_error"] = str(exc)
         return None, "unavailable"
 
 
 def _fetch_current_weather():
-    """Use the middleware first, then fall back to OpenWeatherMap directly."""
+    """Fetch the current outdoor weather."""
     weather = _fetch("/api/weather/current")
     if weather:
         st.session_state.pop("weather_error", None)
-        return weather, "middleware"
+        return weather, "live"
 
     try:
         from services.weather_service import WeatherService
@@ -73,7 +73,7 @@ def _fetch_current_weather():
         weather_data = service.get_current_weather()
         if weather_data:
             st.session_state.pop("weather_error", None)
-            return weather_data.to_dict(), "openweathermap"
+            return weather_data.to_dict(), "live"
         if service.last_error:
             st.session_state["weather_error"] = service.last_error
     except Exception as exc:
@@ -82,11 +82,11 @@ def _fetch_current_weather():
 
 
 def _fetch_forecast(days: int = 5):
-    """Use the middleware first, then fall back to OpenWeatherMap directly."""
+    """Fetch the outdoor forecast."""
     forecast = _fetch("/api/weather/forecast", params={"days": days})
     if forecast:
         st.session_state.pop("forecast_error", None)
-        return forecast, "middleware"
+        return forecast, "live"
 
     try:
         from services.weather_service import WeatherService
@@ -95,7 +95,7 @@ def _fetch_forecast(days: int = 5):
         forecast_data = service.get_forecast(days=days)
         if forecast_data:
             st.session_state.pop("forecast_error", None)
-            return [asdict(day) for day in forecast_data], "openweathermap"
+            return [asdict(day) for day in forecast_data], "live"
         if service.last_error:
             st.session_state["forecast_error"] = service.last_error
     except Exception as exc:
@@ -131,13 +131,25 @@ def _aqi_label(aqi) -> tuple[str, str]:
 
 def render():
     """Render the real-time dashboard page."""
-    st.title("Real-Time Conditions")
-    st.caption("Latest indoor sensor readings, outdoor conditions, and forecast.")
+    st.markdown("""
+    <div class="pixel-shell">
+        <div class="hero-band">
+            <div class="eyebrow">LIVE MAP</div>
+            <h1>Sensor Zone</h1>
+            <p>Indoor base, outdoor scan, and forecast radar.</p>
+            <div class="mission-row">
+                <span class="mission-chip">Room scan</span>
+                <span class="mission-chip">Outdoor scan</span>
+                <span class="mission-chip">Forecast radar</span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     with st.spinner("Fetching latest data..."):
-        sensor, sensor_source = _fetch_latest_sensor()
-        weather, weather_source = _fetch_current_weather()
-        forecast, forecast_source = _fetch_forecast()
+        sensor, _sensor_source = _fetch_latest_sensor()
+        weather, _weather_source = _fetch_current_weather()
+        forecast, _forecast_source = _fetch_forecast()
 
     if sensor:
         humidity = _number(sensor.get("humidity_pct"), 100)
@@ -153,10 +165,10 @@ def render():
         if co2_source == "sensor" and aqi_label == "Poor":
             st.warning(f"Poor air quality: CO2 is {aqi:.0f} ppm. Ventilate the room.")
 
-    tab_overview, tab_forecast, tab_diagnostics = st.tabs(["Overview", "Forecast", "Diagnostics"])
+    tab_overview, tab_forecast = st.tabs(["Base HUD", "Forecast Radar"])
 
     with tab_overview:
-        st.markdown("### Indoor")
+        st.markdown('<div class="pixel-title">INDOOR BASE</div>', unsafe_allow_html=True)
         c1, c2, c3, c4 = st.columns(4)
 
         if sensor:
@@ -179,11 +191,11 @@ def render():
                 c.markdown(metric_card("--", "--", "", icon="No data", color="#64748b"), unsafe_allow_html=True)
             error = st.session_state.get("sensor_error")
             if error:
-                st.caption(f"Indoor data unavailable. Middleware is unreachable and direct BigQuery failed: {error}")
+                st.caption("Indoor data is not available right now.")
             else:
-                st.caption("Indoor data unavailable. Check the middleware or BigQuery credentials.")
+                st.caption("Indoor data is not available right now.")
 
-        st.markdown("### Outdoor")
+        st.markdown('<div class="pixel-title">OUTDOOR SCAN</div>', unsafe_allow_html=True)
         o1, o2, o3, o4 = st.columns(4)
 
         if weather:
@@ -221,30 +233,20 @@ def render():
                 c.markdown(metric_card("--", "--", "", icon="No data", color="#64748b"), unsafe_allow_html=True)
             error = st.session_state.get("weather_error")
             if error:
-                st.caption(f"Outdoor weather unavailable. Middleware is unreachable and direct OpenWeatherMap failed: {error}")
+                st.caption("Outdoor weather is not available right now.")
             else:
-                st.caption("Outdoor weather unavailable. Check OWM_API_KEY in .env.")
+                st.caption("Outdoor weather is not available right now.")
 
     with tab_forecast:
-        st.markdown("### 5-Day Forecast")
+        st.markdown('<div class="pixel-title">5-DAY RADAR</div>', unsafe_allow_html=True)
         if forecast and isinstance(forecast, list):
             forecast_cards(forecast)
         else:
             error = st.session_state.get("forecast_error")
             if error:
-                st.info(f"Forecast unavailable. Middleware is unreachable and direct OpenWeatherMap failed: {error}")
+                st.info("Forecast is not available right now.")
             else:
-                st.info("Forecast unavailable. Add OWM_API_KEY to your .env file.")
-
-    with tab_diagnostics:
-        st.json({
-            "indoor": sensor_source,
-            "outdoor": weather_source,
-            "forecast": forecast_source,
-            "outdoor_city": weather.get("city") if weather else None,
-            "outdoor_error": st.session_state.get("weather_error"),
-            "forecast_error": st.session_state.get("forecast_error"),
-        })
+                st.info("Forecast is not available right now.")
 
     st.markdown(
         f"<p style='color:#475569; font-size:0.75rem; margin-top: 2rem;'>"

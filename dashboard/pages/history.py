@@ -24,7 +24,7 @@ TIME_OPTIONS = {
 
 
 def _fetch(path: str, params: dict = None):
-    """Fetch JSON from the Flask middleware. Returns None on failure."""
+    """Fetch JSON from the local station service. Returns None on failure."""
     try:
         resp = requests.get(f"{MIDDLEWARE_URL}{path}", params=params, timeout=10)
         if resp.status_code == 200:
@@ -52,7 +52,7 @@ def _rows_to_sensor_payload(rows):
 
 
 def _fetch_sensor_history(device_id: str, hours: int):
-    """Use the middleware first, then fall back to BigQuery directly."""
+    """Fetch indoor history."""
     device_id = device_id.strip() or None
     params = {"hours": hours}
     if device_id:
@@ -60,13 +60,13 @@ def _fetch_sensor_history(device_id: str, hours: int):
 
     data = _fetch("/api/sensors/history", params=params)
     if data:
-        return data, "middleware"
+        return data, "live"
 
     try:
         from data.bigquery_client import BigQueryClient
 
         rows = BigQueryClient().get_sensor_history(device_id=device_id, hours=hours)
-        return _rows_to_sensor_payload(rows), "bigquery"
+        return _rows_to_sensor_payload(rows), "stored"
     except Exception as exc:
         st.session_state["sensor_history_error"] = str(exc)
         return [], "unavailable"
@@ -91,16 +91,16 @@ def _rows_to_weather_payload(rows):
 
 
 def _fetch_weather_history(hours: int):
-    """Use the middleware first, then fall back to BigQuery directly."""
+    """Fetch outdoor history."""
     data = _fetch("/api/weather/history", params={"hours": hours})
     if data:
-        return data, "middleware"
+        return data, "live"
 
     try:
         from data.bigquery_client import BigQueryClient
 
         rows = BigQueryClient().get_weather_history(hours=hours)
-        return _rows_to_weather_payload(rows), "bigquery"
+        return _rows_to_weather_payload(rows), "stored"
     except Exception as exc:
         st.session_state["weather_history_error"] = str(exc)
         return [], "unavailable"
@@ -111,7 +111,7 @@ def _store_current_weather_snapshot():
     try:
         resp = requests.get(f"{MIDDLEWARE_URL}/api/weather/current", params={"store": "true"}, timeout=10)
         if resp.status_code == 200:
-            return True, "Stored current outdoor weather through the middleware."
+            return True, "Weather snapshot saved."
     except requests.RequestException:
         pass
 
@@ -122,14 +122,14 @@ def _store_current_weather_snapshot():
         service = WeatherService()
         weather = service.get_current_weather()
         if not weather:
-            return False, f"OpenWeatherMap did not return current weather: {service.last_error}"
+            return False, "Could not read the current outdoor weather."
 
         ok = BigQueryClient().insert_weather_data(weather)
         if ok:
-            return True, "Stored current outdoor weather directly in BigQuery."
-        return False, "BigQuery rejected the weather row. Check credentials and table schema."
+            return True, "Weather snapshot saved."
+        return False, "Could not save this weather snapshot."
     except Exception as exc:
-        return False, f"Could not store outdoor weather: {exc}"
+        return False, "Could not save this weather snapshot."
 
 
 def _to_df(data: list, time_col: str = "timestamp") -> pd.DataFrame:
@@ -260,7 +260,7 @@ def _render_insights(sensor_df: pd.DataFrame):
     if sensor_df.empty:
         return
 
-    st.markdown("### Indoor Insights")
+    st.markdown('<div class="pixel-title">INDOOR RECAP</div>', unsafe_allow_html=True)
     score, recommendation = _comfort_score(sensor_df)
 
     temp_avg = sensor_df["temperature_c"].mean() if "temperature_c" in sensor_df.columns else float("nan")
@@ -269,10 +269,10 @@ def _render_insights(sensor_df: pd.DataFrame):
     motion_count = int((sensor_df["motion_detected"] == True).sum()) if "motion_detected" in sensor_df.columns else 0
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Comfort Score", f"{score}/100")
+    m1.metric("Comfort", f"{score}/100")
     m2.metric("Avg Temp", f"{_fmt(temp_avg)} C")
-    m3.metric("Avg Humidity", f"{_fmt(hum_avg)}%")
-    m4.metric("Motion Events", motion_count)
+    m3.metric("Avg Hum", f"{_fmt(hum_avg)}%")
+    m4.metric("Motion", motion_count)
 
     if low_humidity_count:
         st.warning(f"Humidity was below 40% for {low_humidity_count} reading(s) in this period.")
@@ -289,18 +289,30 @@ def _render_insights(sensor_df: pd.DataFrame):
 
 def render():
     """Render the history page."""
-    st.title("Historical Data")
-    st.caption("Review comfort, motion, and weather trends from BigQuery.")
+    st.markdown("""
+    <div class="pixel-shell">
+        <div class="hero-band">
+            <div class="eyebrow">DATA ARCHIVE</div>
+            <h1>History Vault</h1>
+            <p>Replay sensor runs and compare indoor comfort with outdoor weather.</p>
+            <div class="mission-row">
+                <span class="mission-chip">Room history</span>
+                <span class="mission-chip">Motion events</span>
+                <span class="mission-chip">CO2 runs</span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     col_ctrl1, col_ctrl2 = st.columns([2, 2])
     with col_ctrl1:
-        selected_range = st.selectbox("Time Range", list(TIME_OPTIONS.keys()), index=2)
+        selected_range = st.selectbox("Replay window", list(TIME_OPTIONS.keys()), index=2)
     with col_ctrl2:
-        device_id = st.text_input("Device ID filter", value="", placeholder="All devices")
+        device_id = st.text_input("Room filter", value="", placeholder="Whole home")
 
     hours = TIME_OPTIONS[selected_range]
 
-    with st.spinner("Loading historical data from BigQuery..."):
+    with st.spinner("Loading history..."):
         sensor_data, sensor_source = _fetch_sensor_history(device_id=device_id, hours=hours)
         weather_data, weather_source = _fetch_weather_history(hours=hours)
 
@@ -309,21 +321,17 @@ def render():
 
     if sensor_df.empty and weather_df.empty:
         st.warning(
-            "No historical data found. Make sure the middleware is running and "
-            "sensors have been sending data."
+            "No history found yet. Let the station collect a few readings first."
         )
         return
 
-    st.markdown("### Indoor History")
-    st.caption(f"Showing {'all devices' if not device_id.strip() else device_id.strip()}.")
+    st.markdown('<div class="pixel-title">INDOOR TIMELINE</div>', unsafe_allow_html=True)
+    st.caption(f"Scope: {'whole home' if not device_id.strip() else device_id.strip()}.")
 
     if not sensor_df.empty:
-        if sensor_source == "bigquery":
-            st.caption("Indoor history loaded directly from BigQuery because the middleware was unreachable.")
-
         _render_insights(sensor_df)
 
-        tab_temp, tab_humidity, tab_air = st.tabs(["Temperature", "Humidity", "Air Quality"])
+        tab_temp, tab_humidity, tab_air = st.tabs(["Temp Trace", "Humidity Trace", "CO2 Trace"])
         with tab_temp:
             st.plotly_chart(
                 temperature_chart(sensor_df, indoor_col="temperature_c", title="Indoor Temperature"),
@@ -338,7 +346,7 @@ def render():
             co2_df = sensor_df
             if "co2_source" in sensor_df.columns:
                 co2_df = sensor_df[sensor_df["co2_source"] == "sensor"]
-            st.caption("CO2 chart uses only rows collected from the CO2 sensor, not old placeholder values.")
+            st.caption("CO2 trace uses readings from air-quality runs.")
             st.plotly_chart(
                 air_quality_chart(co2_df, col="air_quality_index", title="CO2 From Sensor (ppm)"),
                 use_container_width=True,
@@ -353,17 +361,17 @@ def render():
     else:
         error = st.session_state.get("sensor_history_error")
         if error:
-            st.info(f"No indoor sensor data available. Middleware is unreachable and direct BigQuery failed: {error}")
+            st.info("No indoor history is available right now.")
         else:
             st.info("No indoor sensor data available for this period.")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    st.markdown("### Outdoor History")
+    st.markdown('<div class="pixel-title">OUTDOOR TIMELINE</div>', unsafe_allow_html=True)
 
-    with st.expander("Outdoor collection controls"):
-        st.caption("Use this for a manual weather snapshot. For regular data, run collect_data.py.")
-        if st.button("Save Outdoor Now", use_container_width=True):
+    with st.expander("Weather capture"):
+        st.caption("Save the current outdoor weather into the archive.")
+        if st.button("Save outdoor now", use_container_width=True):
             ok, message = _store_current_weather_snapshot()
             if ok:
                 st.success(message)
@@ -372,10 +380,7 @@ def render():
                 st.error(message)
 
     if not weather_df.empty:
-        if weather_source == "bigquery":
-            st.caption("Outdoor history loaded directly from BigQuery because the middleware was unreachable.")
-
-        tab_out_temp, tab_out_humidity = st.tabs(["Temperature", "Humidity"])
+        tab_out_temp, tab_out_humidity = st.tabs(["Temp Trace", "Humidity Trace"])
         with tab_out_temp:
             st.plotly_chart(
                 temperature_chart(weather_df, indoor_col="temperature_c", title="Outdoor Temperature"),
@@ -389,28 +394,9 @@ def render():
     else:
         error = st.session_state.get("weather_history_error")
         if error:
-            st.info(f"No outdoor weather history available. Middleware is unreachable and direct BigQuery failed: {error}")
+            st.info("No outdoor history is available right now.")
         else:
             st.info(
-                "No outdoor weather history yet. Use Save Outdoor Now to write the "
-                "current OpenWeatherMap reading into BigQuery."
+                "No outdoor weather history yet. Use Save outdoor now to write the "
+                "current outdoor reading into the archive."
             )
-
-    if st.toggle("Show raw sensor rows", value=False):
-        if sensor_df.empty:
-            st.write("No data.")
-            return
-        display_cols = [
-            c for c in [
-                "timestamp",
-                "device_id",
-                "temperature_c",
-                "humidity_pct",
-                "air_quality_index",
-                "air_quality_label",
-                "co2_source",
-                "motion_detected",
-            ]
-            if c in sensor_df.columns
-        ]
-        st.dataframe(sensor_df[display_cols].sort_values("timestamp", ascending=False), use_container_width=True)

@@ -1,28 +1,33 @@
-# Weather Station - Cloud Analytics
+# Weather Station
 
-Indoor/outdoor weather station using an M5Stack Core2, Flask middleware,
-Google BigQuery, OpenWeatherMap, Gemini, and a Streamlit dashboard.
+Smart indoor/outdoor weather station with a Streamlit dashboard, M5Stack Core2
+interface, voice assistant, weather recommendations, and Spotify mood playback.
 
-## What It Does
+## Final Features
 
-- Core2 collects indoor readings and sends them to Flask.
-- Flask validates readings and stores them in BigQuery.
-- Outdoor weather is fetched from OpenWeatherMap and can be stored in BigQuery.
-- Streamlit shows real-time conditions, history, insights, and an ask-data page.
-- Gemini answers dashboard/Core2 questions and generates Core2 speech audio.
+- Indoor temperature, humidity, motion, and optional CO2 collection.
+- Outdoor weather and forecast collection.
+- Dashboard with Home Base, Live Map, History Vault, and AI Console pages.
+- Voice assistant with speech input and spoken answers.
+- Morning routine: motion triggers a short weather briefing, outfit advice, and
+  mood music.
+- Historical comfort and air-quality analysis.
 
 ## Architecture
 
 ```text
-M5Stack Core2  ->  Flask middleware  ->  BigQuery
-                         |
-                         +-> OpenWeatherMap
-                         +-> Gemini API
-                         |
-                    Streamlit dashboard
+M5Stack Core2
+    -> local Python service
+        -> cloud storage
+        -> weather provider
+        -> assistant and voice services
+        -> Spotify playback
+
+Streamlit dashboard
+    -> local Python service
 ```
 
-## Main Commands
+## Run The Project
 
 Install dependencies:
 
@@ -30,7 +35,7 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-Run the Flask middleware:
+Run the local service:
 
 ```powershell
 python -m middleware.app
@@ -42,32 +47,32 @@ Run the dashboard:
 python -m streamlit run dashboard/app.py
 ```
 
-Collect outdoor weather periodically:
+Collect outdoor weather in the background:
 
 ```powershell
 python collect_data.py
 ```
 
-## Configuration
+## Core2 Firmware
 
-Copy `.env.example` to `.env` and fill in:
+The final Core2 firmware is:
 
 ```text
-OWM_API_KEY
-GOOGLE_CLOUD_PROJECT
-GOOGLE_APPLICATION_CREDENTIALS
-BQ_DATASET
-GEMINI_API_KEY
+device/main.py
 ```
 
-Do not commit `.env`.
+For UIFlow 2, copy that file into the UIFlow editor as `main.py`.
 
-For Core2 WiFi/API values, use `device/main_local.py`. It is ignored by git.
-Keep real WiFi passwords out of `device/main.py`.
+The public file contains placeholder WiFi/API values. Keep your real local
+values in an ignored local copy such as:
 
-## Core2 Sensor Modes
+```text
+device/main_uiflow2_local.py
+```
 
-The Core2 script has a `SENSOR_MODE` setting:
+## Sensor Modes
+
+The Core2 uses this setting:
 
 ```python
 SENSOR_MODE = "env3"
@@ -75,20 +80,32 @@ SENSOR_MODE = "env3"
 
 Use:
 
-- `"env3"` when the ENV III sensor is connected on Port A.
-- `"co2"` when the CO2 sensor is connected on Port A.
+- `"env3"` for ENV III temperature and humidity readings.
+- `"co2"` when collecting CO2 readings.
 
-Because both units use Port A, temperature/humidity and CO2 are collected in
-separate sessions. The dashboard/assistant combines them by recent time window,
-not by assuming they came from the same row.
+Because ENV III and CO2 both use Port A, they are collected in separate
+sessions. The dashboard and assistant combine recent readings by time window.
 
-## Project Structure
+## Files To Know For The Presentation
 
 ```text
-config/       Environment and BigQuery schema
-data/         Dataclasses and BigQuery client
-middleware/   Flask API routes
-services/     Weather and assistant services
-dashboard/    Streamlit dashboard
-device/       Core2 script
+device/main.py                  Core2 UIFlow 2 firmware
+middleware/app.py               Local service entry point
+middleware/routes/              Service endpoints
+services/weather_service.py     Outdoor weather
+services/voice_service.py       Assistant, speech input, speech output
+services/spotify_service.py     Mood music playback
+data/bigquery_client.py         Cloud data access
+dashboard/app.py                Dashboard shell and navigation
+dashboard/pages/                Dashboard screens
+collect_data.py                 Outdoor weather collector
 ```
+
+## Private Files
+
+Do not commit:
+
+- `.env`
+- `device/*_local*.py`
+- service-account JSON files
+- generated `artifacts/`

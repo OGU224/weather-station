@@ -1,5 +1,6 @@
 .env
 __pycache__/
+artifacts/
 *.py[cod]
 venv/
 .venv/
@@ -10,3 +11,4 @@ service-account*.json
 device/device_config.py
 device/main_local.py
 device/*_local.py
+device/*_local*.py

@@ -45,28 +45,87 @@ def _tts(text: str):
     )
 
 
+def _stt(audio_file, language_code: str):
+    files = {
+        "audio": (
+            getattr(audio_file, "name", "question.wav"),
+            audio_file.getvalue(),
+            getattr(audio_file, "type", "audio/wav"),
+        )
+    }
+    data = {"language_code": language_code}
+    response = requests.post(
+        f"{MIDDLEWARE_URL}/api/voice/stt",
+        files=files,
+        data=data,
+        timeout=45,
+    )
+    if response.status_code >= 400:
+        try:
+            detail = response.json().get("error", response.text)
+        except ValueError:
+            detail = response.text
+        raise requests.HTTPError(detail or f"STT failed with status {response.status_code}")
+    return response.json()
+
+
 def render():
-    st.title("Ask Data")
-    st.caption("Ask Gemini about indoor readings, outdoor weather, and historical trends.")
+    st.markdown("""
+    <div class="pixel-shell">
+        <div class="hero-band">
+            <div class="eyebrow">AI CONSOLE</div>
+            <h1>Ask The Station</h1>
+            <p>Ask about comfort, weather, motion, and recent room trends.</p>
+            <div class="mission-row">
+                <span class="mission-chip">Smart answers</span>
+                <span class="mission-chip">Voice input</span>
+                <span class="mission-chip">Spoken reply</span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     col1, col2 = st.columns([2, 1])
     with col1:
-        device_id = st.text_input("Device ID filter", value="", placeholder="All devices")
+        device_id = st.text_input("Room filter", value="", placeholder="Whole home")
     with col2:
-        hours = st.selectbox("Time window", [1, 2, 6, 12, 24, 48, 168], index=4)
+        hours = st.selectbox("Time gate", [1, 2, 6, 12, 24, 48, 168], index=4)
 
     if "ask_question" not in st.session_state:
         st.session_state["ask_question"] = SUGGESTED_QUESTIONS[0]
 
-    with st.expander("Suggested questions", expanded=True):
+    with st.expander("Command presets", expanded=True):
         cols = st.columns(2)
         for index, suggested in enumerate(SUGGESTED_QUESTIONS):
             with cols[index % 2]:
                 if st.button(suggested, use_container_width=True):
                     st.session_state["ask_question"] = suggested
 
+    with st.expander("Voice command", expanded=False):
+        language_code = st.selectbox("Speech language", ["en-US", "fr-FR"], index=0)
+        audio_input = None
+        if hasattr(st, "audio_input"):
+            audio_input = st.audio_input("Record command")
+        else:
+            st.info("Your Streamlit version does not support browser audio recording. Update Streamlit to use this.")
+
+        if audio_input and st.button("Decode voice", use_container_width=True):
+            with st.spinner("Listening..."):
+                try:
+                    transcript = _stt(audio_input, language_code=language_code)
+                except requests.RequestException as exc:
+                    st.error(f"Could not transcribe audio: {exc}")
+                else:
+                    text = transcript.get("transcript", "").strip()
+                    if text:
+                        st.session_state["ask_question"] = text
+                        st.success("Voice question added below.")
+                        st.rerun()
+                    else:
+                        st.warning("No speech was detected in the recording.")
+
     question = st.text_area(
-        "Question",
+        "Command line",
         key="ask_question",
         height=100,
         placeholder="Ask something like: What was the average humidity today?",
@@ -74,9 +133,9 @@ def render():
 
     ask_col, clear_col = st.columns([3, 1])
     with ask_col:
-        ask_clicked = st.button("Ask", type="primary", use_container_width=True)
+        ask_clicked = st.button("Run query", type="primary", use_container_width=True)
     with clear_col:
-        if st.button("Clear", use_container_width=True):
+        if st.button("Reset", use_container_width=True):
             st.session_state.pop("last_answer_result", None)
             st.session_state.pop("last_answer_audio", None)
             st.rerun()
@@ -85,11 +144,11 @@ def render():
         if not question.strip():
             st.warning("Write a question first.")
         else:
-            with st.spinner("Analyzing BigQuery data..."):
+            with st.spinner("Thinking..."):
                 try:
                     result = _ask(question=question, device_id=device_id, hours=hours)
                 except requests.RequestException as exc:
-                    st.error(f"Could not reach the assistant API: {exc}")
+                    st.error("The assistant is unavailable right now.")
                     return
             st.session_state["last_answer_result"] = result
             st.session_state.pop("last_answer_audio", None)
@@ -97,35 +156,24 @@ def render():
 
     result = st.session_state.get("last_answer_result")
     if result:
-        st.markdown("### Answer")
+        st.markdown('<div class="pixel-title">ASSISTANT OUTPUT</div>', unsafe_allow_html=True)
         answer = result.get("answer", "No answer returned.")
         st.markdown(f"""
-        <div style="
-            background:#111827;
-            border:1px solid #334155;
-            border-radius:8px;
-            padding:1rem 1.1rem;
-            color:#e5e7eb;
-            line-height:1.55;
-        ">{answer}</div>
+        <div class="console-panel">{answer}</div>
         """, unsafe_allow_html=True)
 
         source = result.get("source", "unknown")
-        if source == "local-fallback":
-            st.info("Answer generated with local analytics because OPENAI_API_KEY is not configured.")
-        elif source == "local-fallback-after-error":
-            st.warning("The AI call failed, so the dashboard used local analytics instead.")
-        else:
-            st.caption(f"Answer generated by {source}.")
+        if source in {"local-fallback", "local-fallback-after-error"}:
+            st.info("Answer prepared from recent station readings.")
 
         speak_col, _ = st.columns([1.2, 2.8])
         with speak_col:
-            if st.button("Speak answer", use_container_width=True):
-                with st.spinner("Generating speech..."):
+            if st.button("Speak", use_container_width=True):
+                with st.spinner("Preparing voice..."):
                     try:
                         audio, provider, content_type = _tts(answer)
                     except requests.RequestException as exc:
-                        st.error(f"Could not generate speech: {exc}")
+                        st.error("Voice playback is unavailable right now.")
                     else:
                         st.session_state["last_answer_audio"] = audio
                         st.session_state["last_answer_audio_provider"] = provider
@@ -134,7 +182,3 @@ def render():
         audio = st.session_state.get("last_answer_audio")
         if audio:
             st.audio(audio, format=st.session_state.get("last_answer_audio_type", "audio/mpeg"))
-            st.caption(f"Audio generated by {st.session_state.get('last_answer_audio_provider', 'tts')}.")
-
-        with st.expander("Data used for answer", expanded=False):
-            st.json(result.get("context", {}))

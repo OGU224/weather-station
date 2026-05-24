@@ -5,6 +5,8 @@ import base64
 from io import BytesIO
 from datetime import datetime
 import wave
+import subprocess
+import tempfile
 
 from dotenv import load_dotenv
 
@@ -14,18 +16,37 @@ from services.weather_service import WeatherService
 load_dotenv(override=True)
 
 DEFAULT_TTS_LANGUAGE = os.getenv("GOOGLE_TTS_LANGUAGE", "en-US")
-DEFAULT_TTS_VOICE = os.getenv("GOOGLE_TTS_VOICE", "")
+DEFAULT_TTS_VOICE = os.getenv("GOOGLE_TTS_VOICE", "en-US-Standard-F")
+DEFAULT_STT_LANGUAGE = os.getenv("GOOGLE_STT_LANGUAGE", "en-US")
+DEFAULT_STT_ALT_LANGUAGES = [
+    item.strip()
+    for item in os.getenv("GOOGLE_STT_ALT_LANGUAGES", "fr-FR").split(",")
+    if item.strip()
+]
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
 GEMINI_TTS_VOICE = os.getenv("GEMINI_TTS_VOICE", "Kore")
 GEMINI_TTS_GAIN = float(os.getenv("GEMINI_TTS_GAIN", "3.0"))
+GOOGLE_TTS_GAIN = float(os.getenv("GOOGLE_TTS_GAIN", "2.0"))
+WINDOWS_TTS_GAIN = float(os.getenv("WINDOWS_TTS_GAIN", "1.8"))
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "12"))
 
 
-def _amplify_pcm(pcm_data, gain):
-    """Amplify signed 16-bit little-endian PCM with clipping."""
+def _amplify_pcm(pcm_data, gain, target_peak=28000):
+    """Amplify signed 16-bit little-endian PCM without harsh clipping."""
     if gain <= 1:
         return pcm_data
+
+    peak = 0
+    for index in range(0, len(pcm_data) - 1, 2):
+        sample = int.from_bytes(pcm_data[index:index + 2], "little", signed=True)
+        abs_sample = abs(sample)
+        if abs_sample > peak:
+            peak = abs_sample
+
+    if peak > 0:
+        max_safe_gain = float(target_peak) / float(peak)
+        gain = min(gain, max_safe_gain)
 
     amplified = bytearray(len(pcm_data))
     for index in range(0, len(pcm_data) - 1, 2):
@@ -48,6 +69,23 @@ def _wav_bytes_from_pcm(pcm_data, channels=1, rate=24000, sample_width=2):
         wav_file.setframerate(rate)
         wav_file.writeframes(pcm_data)
     return buffer.getvalue()
+
+
+def _boost_wav_bytes(wav_data, gain):
+    if gain <= 1:
+        return wav_data
+    source = BytesIO(wav_data)
+    target = BytesIO()
+    with wave.open(source, "rb") as input_wav:
+        params = input_wav.getparams()
+        frames = input_wav.readframes(input_wav.getnframes())
+    if params.sampwidth != 2:
+        return wav_data
+    frames = _amplify_pcm(frames, gain)
+    with wave.open(target, "wb") as output_wav:
+        output_wav.setparams(params)
+        output_wav.writeframes(frames)
+    return target.getvalue()
 
 
 def _synthesize_with_gemini(text):
@@ -78,21 +116,186 @@ def _synthesize_with_gemini(text):
     return _wav_bytes_from_pcm(pcm_data), "audio/wav", "gemini-tts"
 
 
+def _synthesize_with_google_cloud(text, language_code=None, voice_name=None):
+    """Generate WAV audio through Google Cloud Text-to-Speech."""
+    try:
+        from google.cloud import texttospeech
+    except ImportError:
+        return None
+
+    language_code = language_code or DEFAULT_TTS_LANGUAGE
+    voice_name = voice_name or DEFAULT_TTS_VOICE
+
+    client = texttospeech.TextToSpeechClient()
+    synthesis_input = texttospeech.SynthesisInput(text=text)
+    voice_kwargs = {"language_code": language_code}
+    if voice_name:
+        voice_kwargs["name"] = voice_name
+    else:
+        voice_kwargs["ssml_gender"] = texttospeech.SsmlVoiceGender.NEUTRAL
+
+    response = client.synthesize_speech(
+        input=synthesis_input,
+        voice=texttospeech.VoiceSelectionParams(**voice_kwargs),
+        audio_config=texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+            speaking_rate=float(os.getenv("GOOGLE_TTS_SPEAKING_RATE", "1.0")),
+            pitch=float(os.getenv("GOOGLE_TTS_PITCH", "0.0")),
+        ),
+    )
+    audio = _boost_wav_bytes(response.audio_content, GOOGLE_TTS_GAIN)
+    return audio, "audio/wav", "google-cloud-tts"
+
+
+def _powershell_quote(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _synthesize_with_windows_sapi(text):
+    """Generate WAV locally on Windows when Gemini TTS is unreachable."""
+    if os.name != "nt":
+        return None
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        wav_path = tmp.name
+
+    script = (
+        "$ErrorActionPreference = 'Stop'; "
+        "$path = " + _powershell_quote(wav_path) + "; "
+        "$text = " + _powershell_quote(text) + "; "
+        "$voice = New-Object -ComObject SAPI.SpVoice; "
+        "$stream = New-Object -ComObject SAPI.SpFileStream; "
+        "$stream.Open($path, 3, $false); "
+        "$voice.AudioOutputStream = $stream; "
+        "$voice.Rate = 0; "
+        "$voice.Volume = 100; "
+        "$voice.Speak($text) | Out-Null; "
+        "$stream.Close(); "
+    )
+
+    try:
+        completed = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError((completed.stderr or completed.stdout or "Windows SAPI failed").strip())
+        with open(wav_path, "rb") as wav_file:
+            audio = wav_file.read()
+        if len(audio) <= 64:
+            raise RuntimeError("Windows SAPI returned empty audio.")
+        audio = _boost_wav_bytes(audio, WINDOWS_TTS_GAIN)
+        return audio, "audio/wav", "windows-sapi"
+    finally:
+        try:
+            os.remove(wav_path)
+        except OSError:
+            pass
+
+
 def synthesize_speech(text, language_code=None, voice_name=None):
-    """Return WAV audio bytes from Gemini native TTS."""
+    """Return WAV audio bytes from Google Cloud TTS, with local fallbacks."""
     if not text or not text.strip():
         raise ValueError("Text is required.")
 
     text = text.strip()
 
     try:
+        google_result = _synthesize_with_google_cloud(
+            text=text,
+            language_code=language_code,
+            voice_name=voice_name,
+        )
+        if google_result:
+            return google_result
+    except Exception as exc:
+        google_error = exc
+    else:
+        google_error = None
+
+    try:
         gemini_result = _synthesize_with_gemini(text)
         if gemini_result:
             return gemini_result
     except Exception as exc:
+        sapi_result = _synthesize_with_windows_sapi(text)
+        if sapi_result:
+            return sapi_result
+        if google_error:
+            raise RuntimeError(f"Google TTS failed: {google_error}; Gemini TTS failed: {exc}") from exc
         raise RuntimeError(f"Gemini TTS failed: {exc}") from exc
 
-    raise RuntimeError("GEMINI_API_KEY is not configured.")
+    sapi_result = _synthesize_with_windows_sapi(text)
+    if sapi_result:
+        return sapi_result
+
+    raise RuntimeError("GEMINI_API_KEY is not configured and Windows TTS is unavailable.")
+
+
+def transcribe_speech(audio_bytes, language_code=None, content_type=None):
+    """Transcribe short audio bytes with Google Cloud Speech-to-Text."""
+    if not audio_bytes:
+        raise ValueError("Audio is required.")
+
+    try:
+        from google.cloud import speech
+    except ImportError as exc:
+        raise RuntimeError("google-cloud-speech is not installed.") from exc
+
+    language_code = language_code or DEFAULT_STT_LANGUAGE
+    client = speech.SpeechClient()
+    content_type = (content_type or "").lower()
+
+    encoding = speech.RecognitionConfig.AudioEncoding.ENCODING_UNSPECIFIED
+    sample_rate_hertz = None
+    if "webm" in content_type or "opus" in content_type:
+        encoding = speech.RecognitionConfig.AudioEncoding.WEBM_OPUS
+    elif "l16" in content_type or "pcm" in content_type or "octet-stream" in content_type:
+        encoding = speech.RecognitionConfig.AudioEncoding.LINEAR16
+        sample_rate_hertz = int(os.getenv("GOOGLE_STT_RAW_SAMPLE_RATE", "8000"))
+    elif "wav" in content_type or "wave" in content_type:
+        encoding = speech.RecognitionConfig.AudioEncoding.LINEAR16
+        try:
+            with wave.open(BytesIO(audio_bytes), "rb") as wav_file:
+                sample_rate_hertz = wav_file.getframerate()
+        except wave.Error:
+            sample_rate_hertz = None
+    elif "flac" in content_type:
+        encoding = speech.RecognitionConfig.AudioEncoding.FLAC
+
+    config_kwargs = {
+        "language_code": language_code,
+        "alternative_language_codes": DEFAULT_STT_ALT_LANGUAGES,
+        "enable_automatic_punctuation": True,
+        "model": os.getenv("GOOGLE_STT_MODEL", "latest_short"),
+        "encoding": encoding,
+    }
+    if sample_rate_hertz:
+        config_kwargs["sample_rate_hertz"] = sample_rate_hertz
+    config = speech.RecognitionConfig(**config_kwargs)
+    audio = speech.RecognitionAudio(content=audio_bytes)
+    response = client.recognize(config=config, audio=audio)
+
+    transcripts = []
+    confidence = None
+    for result in response.results:
+        if not result.alternatives:
+            continue
+        alternative = result.alternatives[0]
+        transcripts.append(alternative.transcript)
+        if confidence is None:
+            confidence = alternative.confidence
+
+    transcript = " ".join(part.strip() for part in transcripts if part.strip()).strip()
+    return {
+        "transcript": transcript,
+        "confidence": confidence,
+        "language_code": language_code,
+        "provider": "google-cloud-stt",
+        "content_type": content_type,
+    }
 
 
 def _iso(value):
@@ -203,6 +406,8 @@ You are a concise cloud analytics assistant for an IoT weather station project.
 Answer using only the provided indoor sensor and outdoor weather data.
 If the data is insufficient, say what is missing.
 Use Celsius for temperature and percent for humidity.
+Answer in one or two complete, natural sentences.
+Do not answer with only keywords or fragments.
 
 Question:
 {question}
@@ -229,7 +434,8 @@ def _generate_with_gemini(question, context):
             config=types.GenerateContentConfig(
                 system_instruction=(
                     "Answer as a concise cloud analytics assistant for a weather station dashboard. "
-                    "Use only the provided sensor data. Be practical and demo-friendly."
+                    "Use only the provided sensor data. Be practical and demo-friendly. "
+                    "Use one or two complete natural sentences, not keyword lists."
                 ),
                 temperature=0.3,
                 max_output_tokens=300,
@@ -243,7 +449,8 @@ def _generate_with_gemini(question, context):
             config=types.GenerateContentConfig(
                 system_instruction=(
                     "Answer as a concise cloud analytics assistant for a weather station dashboard. "
-                    "Use only the provided sensor data. Be practical and demo-friendly."
+                    "Use only the provided sensor data. Be practical and demo-friendly. "
+                    "Use one or two complete natural sentences, not keyword lists."
                 ),
                 temperature=0.3,
                 max_output_tokens=300,
