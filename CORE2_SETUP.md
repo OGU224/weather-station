@@ -26,46 +26,56 @@ Use the IPv4 address from the active WiFi network in the Core2 API URL:
 http://YOUR_COMPUTER_IP:5000
 ```
 
-## 3. Prepare The UIFlow 2 File
+## 3. Prepare The Core2 WiFi Config
 
-The public firmware is:
+The public firmware is clean and does not need real WiFi passwords. Put local
+credentials in a private config file on the Core2 instead.
 
-```text
-device/main.py
-```
-
-It contains placeholder WiFi/API values. For real testing, keep a private local
-copy such as:
+Copy:
 
 ```text
-device/main_uiflow2_local.py
+device/device_config.example.py
 ```
 
-Local files matching `device/*_local*.py` are ignored by Git.
+to the Core2 as:
 
-## 4. Select The Profile
+```text
+/flash/device_config.py
+```
 
-In the local copy, update:
+Then edit the values:
 
 ```python
-ACTIVE_PROFILE = "hotspot"
+WIFI_PROFILES = {
+    "hotspot": {
+        "ssid": "YOUR_HOTSPOT_SSID",
+        "password": "YOUR_HOTSPOT_PASSWORD",
+        "api": "http://YOUR_COMPUTER_IP:5000",
+    },
+    "university": {
+        "ssid": "iot-unil",
+        "password": "YOUR_UNIVERSITY_WIFI_PASSWORD",
+        "api": "http://YOUR_COMPUTER_IP:5000",
+    },
+}
 ```
 
-or:
+`device/device_config.py` is ignored by Git. Do not commit real passwords.
 
-```python
-ACTIVE_PROFILE = "university"
-```
-
-Then set the matching SSID, password, and API URL in `WIFI_PROFILES`.
+The Core2 WiFi page lets you choose between the configured profiles at boot.
 
 ## 5. Upload With UIFlow 2
 
 1. Open UIFlow 2.
 2. Select Core2.
 3. Connect through USB.
-4. Paste the local firmware copy as `main.py`.
-5. Run it on the device.
+4. Upload the `device/ui` folder contents to `/flash/ui`.
+5. Upload `/flash/device_config.py` with your real WiFi/API values.
+6. Paste `device/main.py` or your private local copy as `main.py`.
+7. Run it on the device.
+
+If the UIFlow 2 file manager does not let you create `/flash/ui`, upload the UI
+files directly into `/flash`. The firmware checks both `/flash/ui` and `/flash`.
 
 ## 6. Sensor Mode
 
@@ -74,6 +84,15 @@ Use ENV III mode for temperature and humidity:
 ```python
 SENSOR_MODE = "env3"
 ```
+
+For a short CO2-only validation run, you can also run:
+
+```text
+device/co2_session_uiflow2.py
+```
+
+This diagnostic script prints CO2/TVOC values in the UIFlow WebTerminal and
+sends them to the middleware every 15 seconds. Use the main firmware for demos.
 
 Use CO2 mode when the CO2 unit is connected on Port A:
 
@@ -94,7 +113,7 @@ C = action / ask / speak
 Pages:
 
 ```text
-Data -> Forecast -> Assistant -> Data
+Data -> Forecast -> Assistant -> Trend -> Data
 ```
 
 ## 8. Demo Checklist

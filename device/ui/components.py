@@ -184,8 +184,10 @@ def draw_topbar(left_text="", right_text="", bg=BLACK):
     Lcd.setTextColor(GRAY, bg)
     Lcd.drawString(_clean(left_text), 4, 1)
     
+    right = _clean(right_text)
+    right_x = max(150, 316 - len(right) * 8)
     Lcd.setTextColor(YELLOW, bg)
-    Lcd.drawString(_clean(right_text), 230, 1)
+    Lcd.drawString(right, right_x, 1)
 
 
 def draw_heart_cursor(x, y):

@@ -17,9 +17,10 @@ from icons import draw_weather_icon
 PAGE_DATA = 0
 PAGE_FORECAST = 1
 PAGE_ASSISTANT = 2
-PAGE_WIFI = 3
-PAGE_CHARACTER = 4
-PAGE_COUNT = 5
+PAGE_TREND = 3
+PAGE_WIFI = 4
+PAGE_CHARACTER = 5
+PAGE_COUNT = 6
 
 
 def _safe_float(value, default=0):
@@ -90,6 +91,16 @@ def _draw_footer(selected, hint="A page   B next   C action"):
     Lcd.drawString(_short(hint, 28), 70, 228)
 
 
+def _clock_label(state, fallback=""):
+    time_text = str(state.get("tstr", "") or "")
+    date_text = str(state.get("dstr", "") or "")
+    if time_text and time_text != "--:--":
+        if date_text and date_text != "--/--":
+            return "{} {}".format(date_text, time_text)
+        return time_text
+    return fallback
+
+
 def _render_busy(title, message, buddy):
     hide_all_components()
     clear_screen()
@@ -115,7 +126,7 @@ def render_data(state, buddy, full=False):
         clear_screen()
         buddy.reset_motion_cache()
 
-    draw_topbar("* WEATHER", "LV {}".format(_comfort_level(state)))
+    draw_topbar("* WEATHER", _clock_label(state, "LV {}".format(_comfort_level(state))))
 
     _update_buddy_state(buddy, state)
     buddy.draw(cx=160, cy=55, bg=BLACK)
@@ -125,8 +136,13 @@ def render_data(state, buddy, full=False):
 
     _draw_lines(_build_status_message(state), x=22, y=101, chars=27, max_lines=3, bullet=True)
 
-    hum = state.get("hum") or 0
-    draw_hp_bar(hum, x=16, y=176, w=150)
+    if state.get("sensor_mode") == "co2":
+        co2 = state.get("co2") or 400
+        air_score = 100 - max(0, min(100, int((co2 - 400) / 12)))
+        draw_hp_bar(air_score, x=16, y=176, w=150)
+    else:
+        hum = state.get("hum") or 0
+        draw_hp_bar(hum, x=16, y=176, w=150)
 
     icon, main = state.get("o_icon", ""), state.get("o_main", "")
     draw_weather_icon(icon_code=icon, weather_main=main, x=270, y=174, px=3)
@@ -155,7 +171,14 @@ def _update_buddy_state(buddy, state):
 
 def _build_status_message(state):
     hum, temp = state.get("hum"), state.get("temp")
+    co2 = state.get("co2")
     o_temp, o_main = state.get("o_temp", "--"), state.get("o_main", "")
+    if state.get("sensor_mode") == "co2":
+        if co2 is not None:
+            if co2 >= 1200: return "Air quality alert. CO2 {} ppm. Open a window.".format(co2)
+            if co2 >= 900: return "CO2 {} ppm. Room air is getting heavy.".format(co2)
+            return "CO2 {} ppm. Air quality looks good.".format(co2)
+        return "Waiting for CO2 sensor..."
     if hum is not None and hum < 40: return "Dry room. Indoor {}C / {}%. Add humidity.".format(temp, int(hum))
     if hum is not None and hum > 70: return "Humid room. Indoor {}C / {}%. Ventilate.".format(temp, int(hum))
     if temp is not None and hum is not None and state.get("o_ok"):
@@ -174,7 +197,7 @@ def render_forecast(state, buddy, full=False):
     if full:
         hide_all_components()
         clear_screen()
-        draw_topbar("* FORECAST", "{} days".format(len(fcast)), bg=BLACK)
+        draw_topbar("* FORECAST", _clock_label(state, "{} days".format(len(fcast))), bg=BLACK)
         _draw_footer(PAGE_FORECAST, "A page   B refresh")
         buddy.reset_motion_cache()
         for i in range(min(3, len(fcast))):
@@ -237,7 +260,7 @@ def render_assistant(state, buddy, full=False):
     if full:
         hide_all_components()
         clear_screen()
-        draw_topbar("* ASSISTANT", "Gemini", bg=BLACK)
+        draw_topbar("* ASSISTANT", _clock_label(state, "Gemini"), bg=BLACK)
         _draw_footer(PAGE_ASSISTANT, "A page   B next   C ask")
         buddy.reset_motion_cache()
 
@@ -299,6 +322,55 @@ def render_assistant(state, buddy, full=False):
 
 
 # ============================================================
+#  PAGE TREND
+# ============================================================
+
+def render_trend(state, buddy, full=False):
+    if full:
+        hide_all_components()
+        clear_screen()
+        draw_topbar("* TREND", _clock_label(state, "24h"), bg=BLACK)
+        buddy.reset_motion_cache()
+        draw_dialogue_box(12, 54, 296, 118)
+
+    buddy.draw_small(cx=44, cy=36, bg=BLACK)
+
+    temp_avg = state.get("trend_temp", "--")
+    hum_avg = state.get("trend_hum", "--")
+    motion_count = state.get("trend_motion", "--")
+    co2_value = state.get("trend_co2", "--")
+    sync = state.get("sync_status", "")
+
+    _draw_lines(
+        "Last 24h: temp {}C, humidity {}%.".format(temp_avg, hum_avg),
+        x=26,
+        y=68,
+        chars=26,
+        max_lines=2,
+        bullet=True,
+    )
+    _draw_lines(
+        "Motion events: {}. CO2: {}.".format(motion_count, co2_value),
+        x=26,
+        y=105,
+        chars=26,
+        max_lines=2,
+        color=CYAN,
+        bullet=True,
+    )
+    _draw_lines(
+        sync or "Boot sync ready.",
+        x=26,
+        y=142,
+        chars=26,
+        max_lines=1,
+        color=YELLOW,
+        bullet=True,
+    )
+    _draw_footer(PAGE_TREND, "A page   B refresh")
+
+
+# ============================================================
 #  PAGE WIFI
 # ============================================================
 
@@ -306,7 +378,7 @@ def render_wifi(state, full=False):
     if full:
         hide_all_components()
         clear_screen()
-        draw_topbar("* WIFI SETUP", "", bg=BLACK)
+        draw_topbar("* WIFI SETUP", _clock_label(state, ""), bg=BLACK)
         _draw_footer(PAGE_WIFI, "B choose   C connect")
         if Lcd: Lcd.fillRect(10, 30, 300, 140, BLACK)
         state_status = state.get("wifi_status", "")
@@ -382,5 +454,6 @@ def render(page, state, buddy, full=True):
     if page == PAGE_DATA: render_data(state, buddy, full)
     elif page == PAGE_FORECAST: render_forecast(state, buddy, full)
     elif page == PAGE_ASSISTANT: render_assistant(state, buddy, full)
+    elif page == PAGE_TREND: render_trend(state, buddy, full)
     elif page == PAGE_WIFI: render_wifi(state, full)
     elif page == PAGE_CHARACTER: render_character_select(buddy, state.get("char_idx", buddy.char_idx), full)

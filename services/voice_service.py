@@ -4,7 +4,7 @@ import os
 import base64
 import re
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone
 import wave
 import subprocess
 import tempfile
@@ -22,6 +22,20 @@ DEFAULT_STT_LANGUAGE = os.getenv("GOOGLE_STT_LANGUAGE", "en-US")
 DEFAULT_STT_ALT_LANGUAGES = [
     item.strip()
     for item in os.getenv("GOOGLE_STT_ALT_LANGUAGES", "fr-FR").split(",")
+    if item.strip()
+]
+DEFAULT_STT_PHRASES = [
+    item.strip()
+    for item in os.getenv(
+        "GOOGLE_STT_PHRASES",
+        (
+            "temperature,humidity,humid,CO2,carbon dioxide,air quality,forecast,"
+            "weather,outside,indoor,outdoor,motion,presence,detected,ventilate,"
+            "window,umbrella,rain,raining,yesterday,two days ago,last 24 hours,"
+            "exceeded,above,below,average,Lausanne,meteo,humidite,temperature,"
+            "qualite de l air,parapluie,pluie,fenetre"
+        ),
+    ).split(",")
     if item.strip()
 ]
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
@@ -60,6 +74,11 @@ INTENT_KEYWORDS = {
     "co2": ["co2", "carbon", "air quality", "quality", "air", "ppm", "qualite"],
     "motion": ["motion", "movement", "presence", "detected", "mouvement", "presence"],
     "average": ["average", "avg", "mean", "trend", "history", "moyenne", "tendance", "historique"],
+    "historical": [
+        "yesterday", "today", "ago", "last", "history", "historical", "exceeded", "exceed",
+        "above", "below", "higher", "lower", "over", "under",
+        "hier", "aujourd hui", "avant", "dernier", "historique", "depasse", "plus", "moins",
+    ],
 }
 
 
@@ -303,6 +322,13 @@ def transcribe_speech(audio_bytes, language_code=None, content_type=None):
         "model": os.getenv("GOOGLE_STT_MODEL", "latest_short"),
         "encoding": encoding,
     }
+    if DEFAULT_STT_PHRASES:
+        config_kwargs["speech_contexts"] = [
+            speech.SpeechContext(
+                phrases=DEFAULT_STT_PHRASES,
+                boost=float(os.getenv("GOOGLE_STT_PHRASE_BOOST", "15")),
+            )
+        ]
     if sample_rate_hertz:
         config_kwargs["sample_rate_hertz"] = sample_rate_hertz
     config = speech.RecognitionConfig(**config_kwargs)
@@ -333,6 +359,25 @@ def _iso(value):
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return value
+
+
+def _parse_iso_datetime(value):
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            try:
+                parsed = datetime.strptime(str(value)[:19], "%Y-%m-%dT%H:%M:%S")
+            except ValueError:
+                return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
 
 
 def _round(value, digits=1):
@@ -425,6 +470,7 @@ def build_context(device_id=None, hours=24):
         "latest_humidity": latest_humidity,
         "latest_co2": latest_co2,
         "stats": _stats(history),
+        "history_rows": history,
         "recent_rows": history[-20:],
         "current_weather": current_weather.to_dict() if current_weather else None,
         "forecast": [day.__dict__ for day in forecast],
@@ -480,6 +526,14 @@ def detect_intent(question):
     if not scores:
         return "general"
 
+    if scores.get("historical") and (
+        scores.get("humidity")
+        or scores.get("temperature")
+        or scores.get("co2")
+        or scores.get("motion")
+        or scores.get("average")
+    ):
+        return "historical"
     if scores.get("rain_forecast"):
         return "rain_forecast"
     if scores.get("outfit"):
@@ -600,12 +654,157 @@ def _room_health_answer(context):
     return "I need recent indoor readings before judging room health."
 
 
+def _required_history_hours(question, current_hours=24):
+    q = normalize_question(question)
+    required = current_hours or 24
+    if "last week" in q or "week" in q or "semaine" in q:
+        required = max(required, 168)
+    if "yesterday" in q or "hier" in q:
+        required = max(required, 48)
+    if "today" in q or "aujourd hui" in q:
+        required = max(required, 24)
+
+    day_match = re.search(r"(\d+)\s*(day|days|jour|jours)\s*(ago|avant)?", q)
+    if day_match:
+        days = int(day_match.group(1))
+        required = max(required, (days + 1) * 24)
+
+    hour_match = re.search(r"last\s*(\d+)\s*(hour|hours)", q)
+    if hour_match:
+        required = max(required, int(hour_match.group(1)))
+
+    return min(max(required, 24), 24 * 14)
+
+
+def _history_period(question):
+    q = normalize_question(question)
+    if "yesterday" in q or "hier" in q:
+        return 24, 48, "yesterday"
+    if "today" in q or "aujourd hui" in q:
+        return 0, 24, "today"
+    day_match = re.search(r"(\d+)\s*(day|days|jour|jours)\s*(ago|avant)?", q)
+    if day_match:
+        days = int(day_match.group(1))
+        if days <= 0:
+            return 0, 24, "today"
+        return days * 24, (days + 1) * 24, f"{days} day(s) ago"
+    hour_match = re.search(r"last\s*(\d+)\s*(hour|hours)", q)
+    if hour_match:
+        hours = int(hour_match.group(1))
+        return 0, hours, f"the last {hours} hours"
+    return 0, None, f"the last {q or 'selected'} period"
+
+
+def _rows_for_period(rows, min_age_hours, max_age_hours):
+    now = datetime.utcnow()
+    selected = []
+    for row in rows or []:
+        timestamp = _parse_iso_datetime(row.get("timestamp"))
+        if not timestamp:
+            continue
+        age_hours = (now - timestamp).total_seconds() / 3600.0
+        if age_hours < min_age_hours:
+            continue
+        if max_age_hours is not None and age_hours >= max_age_hours:
+            continue
+        selected.append(row)
+    return selected
+
+
+def _question_field(question):
+    q = normalize_question(question)
+    if "humidity" in q or "humidite" in q or "humid" in q:
+        return "humidity_pct", "humidity", "%"
+    if "co2" in q or "air quality" in q or "ppm" in q or "qualite" in q:
+        return "air_quality_index", "CO2", " ppm"
+    if "motion" in q or "presence" in q or "movement" in q or "mouvement" in q:
+        return "motion_detected", "motion", ""
+    return "temperature_c", "temperature", " C"
+
+
+def _extract_threshold(question):
+    q = normalize_question(question)
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(%|percent|ppm|c|degrees)?", q)
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def _comparison_mode(question):
+    q = normalize_question(question)
+    if any(word in q for word in ["below", "under", "less", "lower", "moins", "sous"]):
+        return "below"
+    if any(word in q for word in ["exceed", "exceeded", "above", "over", "higher", "more", "depasse", "plus"]):
+        return "above"
+    return None
+
+
+def _historical_answer(question, context):
+    q = normalize_question(question)
+    if not any(word in q for word in ["yesterday", "today", "ago", "last", "history", "historical", "exceed", "above", "below", "over", "under", "hier", "jours", "depasse"]):
+        return None
+
+    rows = context.get("history_rows") or []
+    min_age, max_age, label = _history_period(question)
+    rows = _rows_for_period(rows, min_age, max_age)
+    field, field_label, unit = _question_field(question)
+
+    if not rows:
+        return f"I do not have {field_label} data for {label}."
+
+    if field == "motion_detected":
+        count = sum(1 for row in rows if row.get("motion_detected"))
+        return f"Motion was detected {count} time(s) {label}."
+
+    values = []
+    for row in rows:
+        value = row.get(field)
+        if value is not None:
+            try:
+                values.append(float(value))
+            except (TypeError, ValueError):
+                pass
+
+    if not values:
+        return f"I do not have {field_label} readings for {label}."
+
+    threshold = _extract_threshold(question)
+    comparison = _comparison_mode(question)
+    if threshold is not None and comparison:
+        if comparison == "above":
+            count = sum(1 for value in values if value > threshold)
+            did = count > 0
+            word = "exceeded"
+        else:
+            count = sum(1 for value in values if value < threshold)
+            did = count > 0
+            word = "went below"
+        answer = "Yes" if did else "No"
+        return (
+            f"{answer}. {field_label.capitalize()} {word} {threshold:g}{unit} "
+            f"{count} time(s) {label}. Range: {round(min(values), 1)} to {round(max(values), 1)}{unit}."
+        )
+
+    avg = round(sum(values) / len(values), 1)
+    return (
+        f"For {label}, {field_label} averaged {avg}{unit}, "
+        f"with a range from {round(min(values), 1)} to {round(max(values), 1)}{unit}."
+    )
+
+
 def deterministic_answer(question, context):
     """Answer common dashboard/Core2 intents with stable analytics logic."""
     intent = detect_intent(question)
     weather = context.get("current_weather")
     forecast = context.get("forecast") or []
     stats = context.get("stats", {})
+
+    historical = _historical_answer(question, context)
+    if historical:
+        return historical
 
     if intent == "rain_forecast":
         return _forecast_rain_answer(forecast)
@@ -813,6 +1012,7 @@ def answer_question(question, device_id=None, hours=24):
     if not question or not question.strip():
         raise ValueError("Question is required.")
 
+    hours = _required_history_hours(question, hours)
     context = build_context(device_id=device_id, hours=hours)
     answer, source = generate_response(question.strip(), context)
     return {

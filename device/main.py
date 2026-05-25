@@ -6,6 +6,7 @@ WiFi/API values in your private copy.
 Buttons:
   A: switch page
   B: refresh on data page, next question on assistant page
+  B long press: choose avatar
   C: ask selected question, record voice question, or speak answer
 """
 
@@ -37,10 +38,15 @@ try:
 except Exception:
     ENVUnit = None
 
-for _path in ("/flash", "/flash/ui", "ui", "device/ui"):
+for _path in ("device/ui", "ui", "/flash", "/flash/ui"):
     try:
-        if _path not in sys.path:
-            sys.path.append(_path)
+        if _path in sys.path:
+            sys.path.remove(_path)
+    except Exception:
+        pass
+for _path in ("/flash/ui", "/flash", "ui", "device/ui"):
+    try:
+        sys.path.insert(0, _path)
     except Exception:
         pass
 
@@ -53,6 +59,7 @@ try:
         PAGE_DATA,
         PAGE_FORECAST,
         PAGE_ASSISTANT,
+        PAGE_TREND,
         PAGE_WIFI,
         PAGE_CHARACTER,
         PAGE_COUNT,
@@ -62,10 +69,11 @@ except Exception:
     UNDERTALE_UI = False
 
 # ---------------------------------------------------------------------------
-# Local setup. Keep real passwords/IPs in your UIFlow copy or main_uiflow2_local.py.
+# Local setup.
+# Real WiFi/API values can live in /flash/device_config.py on the Core2.
 # ---------------------------------------------------------------------------
 
-WIFI_PROFILES = {
+DEFAULT_WIFI_PROFILES = {
     "hotspot": {
         "ssid": "YOUR_HOTSPOT_SSID",
         "password": "YOUR_HOTSPOT_PASSWORD",
@@ -78,15 +86,55 @@ WIFI_PROFILES = {
     },
 }
 
-# Change this in your local UIFlow copy when moving between networks.
-ACTIVE_PROFILE = "university"
+DEFAULT_ACTIVE_PROFILE = "university"
+
+
+def _load_wifi_config():
+    profiles = DEFAULT_WIFI_PROFILES
+    active = DEFAULT_ACTIVE_PROFILE
+
+    try:
+        import device_config
+        custom_profiles = getattr(device_config, "WIFI_PROFILES", None)
+        custom_active = getattr(device_config, "ACTIVE_PROFILE", None)
+        if custom_profiles:
+            profiles = custom_profiles
+        if custom_active:
+            active = custom_active
+    except Exception:
+        try:
+            with open("/flash/wifi_profiles.json", "r") as config_file:
+                data = ujson.loads(config_file.read())
+            custom_profiles = data.get("profiles")
+            if custom_profiles:
+                profiles = custom_profiles
+            custom_active = data.get("active_profile")
+            if custom_active:
+                active = custom_active
+        except Exception:
+            pass
+
+    if active not in profiles:
+        for key in profiles:
+            active = key
+            break
+    return profiles, active
+
+
+WIFI_PROFILES, ACTIVE_PROFILE = _load_wifi_config()
 ACTIVE_WIFI = WIFI_PROFILES[ACTIVE_PROFILE]
 
 WIFI_SSID = ACTIVE_WIFI["ssid"]
 WIFI_PASSWORD = ACTIVE_WIFI["password"]
 API_BASE_URL = ACTIVE_WIFI["api"]
 DEVICE_ID = "m5stack-01"
-SENSOR_MODE = "env3"  # "env3" or "co2" once a UIFlow 2 CO2 reader is added.
+SENSOR_MODE = "env3"  # "env3" for ENV III, "co2" for Unit TVOC/eCO2 on PORTA.
+
+try:
+    import device_config
+    SENSOR_MODE = getattr(device_config, "SENSOR_MODE", SENSOR_MODE)
+except Exception:
+    pass
 
 SEND_SECONDS = 60
 WEATHER_SECONDS = 300
@@ -100,10 +148,13 @@ MORNING_COOLDOWN_SECONDS = 900
 SPOTIFY_MUSIC_ENABLED = True
 LOCAL_MUSIC_FALLBACK_ENABLED = False
 SPOTIFY_TIMEOUT_SECONDS = 18
+TIMEZONE_OFFSET_HOURS = 2
 MORNING_QUESTION = (
-    "Generate a very short smart-home morning briefing for someone who just entered "
-    "the room. Use exactly this format with short phrases, no extra words: "
-    "Good morning. Weather outside: [temperature] degrees, [weather]. "
+    "Generate a very short smart-home briefing for someone who just entered "
+    "the room. Adapt the greeting and clothing advice to the local time. "
+    "Do not suggest sunglasses or sunscreen after sunset or in the evening. "
+    "Use exactly this format with short phrases, no extra words: "
+    "[Greeting]. Weather outside: [temperature] degrees, [weather]. "
     "Wear: [short clothing/accessory advice]."
 )
 
@@ -114,6 +165,11 @@ BUTTON_ACTION = "C"
 
 API_BASE = API_BASE_URL.rstrip("/")
 SENSOR_URL = API_BASE + "/api/sensors/reading"
+LATEST_SENSOR_URL = API_BASE + "/api/sensors/latest?device_id="
+LATEST_SENSOR_URL = LATEST_SENSOR_URL + DEVICE_ID
+SENSOR_HISTORY_URL = API_BASE + "/api/sensors/history?device_id="
+SENSOR_HISTORY_URL = SENSOR_HISTORY_URL + DEVICE_ID
+SENSOR_HISTORY_URL = SENSOR_HISTORY_URL + "&hours=24"
 WEATHER_URL = API_BASE + "/api/weather/current"
 FORECAST_URL = API_BASE + "/api/weather/forecast?days=3"
 ASK_URL = API_BASE + "/api/voice/ask"
@@ -129,6 +185,8 @@ MUSIC_MOOD_URL = API_BASE + "/api/music/play-mood"
 PAGE_DATA = 0
 PAGE_FORECAST = 1
 PAGE_ASSISTANT = 2
+PAGE_TREND = 3
+MAIN_PAGE_COUNT = 4
 
 QUESTIONS = [
     (
@@ -193,8 +251,22 @@ outdoor_wind = "--"
 outdoor_main = "loading"
 outdoor_city = "Outdoor"
 forecast_days = []
+clock_time = "--:--"
+clock_date = "--/--"
+clock_year = 0
+clock_month = 0
+clock_day = 0
+clock_hour = 0
+clock_minute = 0
+clock_sync_ms = 0
+sync_status = "No boot sync yet"
+trend_temp_avg = "--"
+trend_hum_avg = "--"
+trend_motion_count = "--"
+trend_co2 = "--"
 
 env3 = None
+co2_i2c = None
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +281,88 @@ def elapsed_ms(start):
     return time.ticks_diff(time.ticks_ms(), start)
 
 
+def _is_leap_year(year):
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+
+def _month_days(year, month):
+    if month == 2:
+        return 29 if _is_leap_year(year) else 28
+    if month in (4, 6, 9, 11):
+        return 30
+    return 31
+
+
+def set_clock_from_iso(timestamp):
+    global clock_time, clock_date, clock_year, clock_month, clock_day, clock_hour, clock_minute, clock_sync_ms
+    try:
+        text = str(timestamp or "")
+        year = int(text[0:4])
+        month = int(text[5:7])
+        day = int(text[8:10])
+        hour = int(text[11:13]) + TIMEZONE_OFFSET_HOURS
+        minute = int(text[14:16])
+
+        if hour >= 24:
+            hour -= 24
+            day += 1
+            if day > _month_days(year, month):
+                day = 1
+                month += 1
+                if month > 12:
+                    month = 1
+                    year += 1
+
+        if hour < 0:
+            hour += 24
+            day -= 1
+            if day < 1:
+                month -= 1
+                if month < 1:
+                    month = 12
+                    year -= 1
+                day = _month_days(year, month)
+
+        clock_year = year
+        clock_month = month
+        clock_day = day
+        clock_hour = hour
+        clock_minute = minute
+        clock_sync_ms = now_ms()
+        refresh_clock_display()
+    except Exception:
+        pass
+
+
+def refresh_clock_display():
+    global clock_time, clock_date
+    if clock_year <= 0 or clock_month <= 0 or clock_day <= 0:
+        return
+    try:
+        elapsed_minutes = 0
+        if clock_sync_ms:
+            elapsed_minutes = elapsed_ms(clock_sync_ms) // 60000
+        year = clock_year
+        month = clock_month
+        day = clock_day
+        total_minutes = clock_hour * 60 + clock_minute + elapsed_minutes
+        while total_minutes >= 1440:
+            total_minutes -= 1440
+            day += 1
+            if day > _month_days(year, month):
+                day = 1
+                month += 1
+                if month > 12:
+                    month = 1
+                    year += 1
+        hour = total_minutes // 60
+        minute = total_minutes % 60
+        clock_time = "{:02d}:{:02d}".format(hour, minute)
+        clock_date = "{:02d}/{:02d}".format(month, day)
+    except Exception:
+        pass
+
+
 def ascii_text(value):
     text = str(value or "")
     replacements = [
@@ -219,7 +373,11 @@ def ascii_text(value):
     ]
     for old, new in replacements:
         text = text.replace(old, new)
-    return "".join(char for char in text if ord(char) < 128)
+    cleaned = ""
+    for char in text:
+        if ord(char) < 128:
+            cleaned += char
+    return cleaned
 
 
 def trim(value, max_chars):
@@ -263,7 +421,35 @@ def has_outfit_advice(text):
         "wear",
         "bring",
     ]
-    return any(word in value for word in keywords)
+    for word in keywords:
+        if word in value:
+            return True
+    return False
+
+
+def local_hour():
+    try:
+        if clock_time and clock_time != "--:--":
+            return int(str(clock_time)[0:2])
+    except Exception:
+        pass
+    return None
+
+
+def is_daylight_hour():
+    hour = local_hour()
+    if hour is None:
+        return True
+    return hour >= 7 and hour < 19
+
+
+def smart_greeting():
+    hour = local_hour()
+    if hour is None or hour < 12:
+        return "Good morning"
+    if hour < 18:
+        return "Good afternoon"
+    return "Good evening"
 
 
 def local_outfit_advice():
@@ -276,8 +462,10 @@ def local_outfit_advice():
     if "rain" in weather or "drizzle" in weather or "storm" in weather:
         return "Don't forget an umbrella or a rain jacket."
     if temp is not None and temp >= 24:
-        return "Wear light clothes, and bring sunglasses and sunscreen."
-    if "clear" in weather or "sun" in weather:
+        if is_daylight_hour():
+            return "Wear light clothes, and bring sunglasses."
+        return "Wear light clothes for the warm evening."
+    if ("clear" in weather or "sun" in weather) and is_daylight_hour():
         return "Bring sunglasses, and use sunscreen if you stay outside."
     if temp is not None and temp <= 10:
         return "Wear a warm jacket or extra layers."
@@ -312,9 +500,10 @@ def outdoor_weather_sentence():
 
 def morning_briefing_text():
     if not outdoor_ok:
-        return "Good morning. Weather outside: unavailable. Wear: take a light layer just in case."
+        return smart_greeting() + ". Weather outside: unavailable. Wear: take a light layer just in case."
     return (
-        "Good morning. Weather outside: "
+        smart_greeting()
+        + ". Weather outside: "
         + str(outdoor_temp)
         + " degrees, "
         + str(outdoor_main)
@@ -327,7 +516,11 @@ def morning_briefing_text():
 def ai_morning_question():
     return (
         MORNING_QUESTION
-        + " Current outdoor data: city Lausanne, temperature "
+        + " Local time: "
+        + str(clock_time)
+        + ". Local date: "
+        + str(clock_date)
+        + ". Current outdoor data: city Lausanne, temperature "
         + str(outdoor_temp)
         + " degrees, weather "
         + str(outdoor_main)
@@ -344,9 +537,13 @@ def valid_morning_briefing(text):
     value = str(text or "").lower()
     if len(value) < 35:
         return False
-    if not ("good morning" in value or "hello" in value):
+    greeting_ok = "good morning" in value or "good afternoon" in value or "good evening" in value or "hello" in value
+    if not greeting_ok:
         return False
-    if not ("weather outside" in value or str(outdoor_temp).lower() in value):
+    weather_ok = "weather outside" in value or str(outdoor_temp).lower() in value
+    if not weather_ok:
+        return False
+    if not is_daylight_hour() and ("sunglasses" in value or "sunscreen" in value):
         return False
     return has_outfit_advice(value)
 
@@ -400,23 +597,40 @@ def button_is_down(button):
             return False
 
 
-last_down = {"A": False, "B": False, "C": False}
+LONG_PRESS_MS = 900
+last_a_down = False
+last_b_down = False
+last_c_down = False
+b_down_ms = 0
+b_long_sent = False
 
 
-def read_button_click():
-    states = {
-        "A": button_is_down(BtnA),
-        "B": button_is_down(BtnB),
-        "C": button_is_down(BtnC),
-    }
-    clicked = None
-    for name in ["C", "B", "A"]:
-        if states[name] and not last_down[name]:
-            clicked = name
-            break
-    for name in ["A", "B", "C"]:
-        last_down[name] = states[name]
-    return clicked
+def read_button_event():
+    global last_a_down, last_b_down, last_c_down, b_down_ms, b_long_sent
+
+    a_down = button_is_down(BtnA)
+    b_down = button_is_down(BtnB)
+    c_down = button_is_down(BtnC)
+
+    if b_down and not last_b_down:
+        b_down_ms = now_ms()
+        b_long_sent = False
+
+    event = None
+    if c_down and not last_c_down:
+        event = "C"
+    elif b_down and not b_long_sent and elapsed_ms(b_down_ms) >= LONG_PRESS_MS:
+        b_long_sent = True
+        event = "B_LONG"
+    elif not b_down and last_b_down and not b_long_sent:
+        event = "B"
+    elif a_down and not last_a_down:
+        event = "A"
+
+    last_a_down = a_down
+    last_b_down = b_down
+    last_c_down = c_down
+    return event
 
 
 def fill_rect(x, y, w, h, color):
@@ -674,9 +888,12 @@ if UNDERTALE_UI:
         return last_answer
 
     def _ui_state():
+        refresh_clock_display()
         return {
             "temp": latest_temp,
             "hum": latest_hum,
+            "co2": latest_co2,
+            "sensor_mode": SENSOR_MODE,
             "send_ok": send_ok,
             "o_temp": outdoor_temp,
             "o_hum": outdoor_hum,
@@ -684,7 +901,8 @@ if UNDERTALE_UI:
             "o_icon": "",
             "o_ok": outdoor_ok,
             "fcast": forecast_days,
-            "tstr": "",
+            "tstr": clock_time,
+            "dstr": clock_date,
             "qi": question_index,
             "ans_ok": answer_ready,
             "ans_txt": _ui_answer_text(),
@@ -692,6 +910,11 @@ if UNDERTALE_UI:
             "wifi_idx": wifi_profile_index,
             "wifi_status": wifi_status,
             "char_idx": buddy.char_idx,
+            "sync_status": sync_status,
+            "trend_temp": trend_temp_avg,
+            "trend_hum": trend_hum_avg,
+            "trend_motion": trend_motion_count,
+            "trend_co2": trend_co2,
         }
 
     def render_data(full=True):
@@ -702,6 +925,9 @@ if UNDERTALE_UI:
 
     def render_assistant(full=True):
         render_undertale(PAGE_ASSISTANT, _ui_state(), buddy, full)
+
+    def render_trend(full=True):
+        render_undertale(PAGE_TREND, _ui_state(), buddy, full)
 
     def render_wifi(full=True):
         render_undertale(PAGE_WIFI, _ui_state(), buddy, full)
@@ -716,6 +942,8 @@ if UNDERTALE_UI:
             render_forecast(full)
         elif page == PAGE_ASSISTANT:
             render_assistant(full)
+        elif page == PAGE_TREND:
+            render_trend(full)
         elif page == PAGE_WIFI:
             render_wifi(full)
         elif page == PAGE_CHARACTER:
@@ -725,6 +953,7 @@ if UNDERTALE_UI:
         global WIFI_SSID, WIFI_PASSWORD, API_BASE_URL, API_BASE
         global SENSOR_URL, WEATHER_URL, FORECAST_URL, ASK_URL, DEVICE_ASK_URL
         global DEVICE_TTS_URL, MUSIC_MOOD_URL, ACTIVE_PROFILE, ACTIVE_WIFI
+        global LATEST_SENSOR_URL, SENSOR_HISTORY_URL
 
         key = wifi_profile_keys[index]
         ACTIVE_PROFILE = key
@@ -734,6 +963,8 @@ if UNDERTALE_UI:
         API_BASE_URL = ACTIVE_WIFI["api"]
         API_BASE = API_BASE_URL.rstrip("/")
         SENSOR_URL = API_BASE + "/api/sensors/reading"
+        LATEST_SENSOR_URL = API_BASE + "/api/sensors/latest?device_id=" + DEVICE_ID
+        SENSOR_HISTORY_URL = API_BASE + "/api/sensors/history?device_id=" + DEVICE_ID + "&hours=24"
         WEATHER_URL = API_BASE + "/api/weather/current"
         FORECAST_URL = API_BASE + "/api/weather/forecast?days=3"
         ASK_URL = API_BASE + "/api/voice/ask"
@@ -786,13 +1017,14 @@ if UNDERTALE_UI:
 
 def connect_wifi():
     global wifi_ok, last_error, wifi_status
-    draw_base("WiFi", HEADER)
-    set_label(line1, "Connecting...", BLUE)
-    set_label(line2, WIFI_SSID, WHITE)
-    set_label(line3, "Resetting WiFi", MUTED)
     if UNDERTALE_UI:
         wifi_status = "Connecting to " + WIFI_SSID
         render_wifi(True)
+    else:
+        draw_base("WiFi", HEADER)
+        set_label(line1, "Connecting...", BLUE)
+        set_label(line2, WIFI_SSID, WHITE)
+        set_label(line3, "Resetting WiFi", MUTED)
 
     if network is None:
         wifi_ok = False
@@ -821,15 +1053,17 @@ def connect_wifi():
                     if UNDERTALE_UI:
                         wifi_status = "Connected"
                         render_wifi(True)
-                    set_label(line3, "Connected", GREEN)
+                    else:
+                        set_label(line3, "Connected", GREEN)
                     time.sleep(1)
                 except Exception:
                     pass
                 return True
-            set_label(line3, "Waiting " + str(_ + 1) + "/30", MUTED)
             if UNDERTALE_UI:
                 wifi_status = "Waiting " + str(_ + 1) + "/30"
                 render_wifi(False)
+            else:
+                set_label(line3, "Waiting " + str(_ + 1) + "/30", MUTED)
             time.sleep(1)
     except Exception as exc:
         last_error = "WiFi " + str(exc)[:20]
@@ -837,15 +1071,32 @@ def connect_wifi():
     wifi_ok = False
     if UNDERTALE_UI:
         wifi_status = "Failed: " + trim(last_error, 20)
-    set_label(line3, "WiFi failed", RED)
-    set_label(line4, trim(last_error, 28), RED)
+        render_wifi(True)
+    else:
+        set_label(line3, "WiFi failed", RED)
+        set_label(line4, trim(last_error, 28), RED)
     time.sleep(2)
     return False
 
 
 def init_sensors():
-    global env3, last_error
-    if I2C is not None and Pin is not None and ENVUnit is not None:
+    global env3, co2_i2c, last_error
+    if I2C is None or Pin is None:
+        last_error = "I2C unavailable"
+        return
+
+    if SENSOR_MODE == "co2":
+        try:
+            co2_i2c = I2C(0, scl=Pin(33), sda=Pin(32), freq=100000)
+            _sgp30_write_command(0x2003)
+            time.sleep_ms(50)
+            last_error = ""
+        except Exception as exc:
+            co2_i2c = None
+            last_error = "CO2 " + str(exc)[:18]
+        return
+
+    if ENVUnit is not None:
         try:
             i2c0 = I2C(0, scl=Pin(33), sda=Pin(32), freq=100000)
             env3 = ENVUnit(i2c=i2c0, type=3)
@@ -854,9 +1105,33 @@ def init_sensors():
             last_error = "ENV " + str(exc)[:18]
 
 
+def _sgp30_write_command(command):
+    if co2_i2c is not None:
+        co2_i2c.writeto(0x58, bytearray([(command >> 8) & 0xFF, command & 0xFF]))
+
+
+def _sgp30_read_co2_tvoc():
+    if co2_i2c is None:
+        return None, None
+    _sgp30_write_command(0x2008)
+    time.sleep_ms(20)
+    data = co2_i2c.readfrom(0x58, 6)
+    co2 = (data[0] << 8) | data[1]
+    tvoc = (data[3] << 8) | data[4]
+    return co2, tvoc
+
+
 def read_sensors():
-    global latest_temp, latest_hum, latest_motion
-    if env3 is not None:
+    global latest_temp, latest_hum, latest_motion, latest_co2, last_error
+    if SENSOR_MODE == "co2":
+        try:
+            co2, tvoc = _sgp30_read_co2_tvoc()
+            if co2 is not None:
+                latest_co2 = int(co2)
+                last_error = "TVOC " + str(tvoc) + " ppb"
+        except Exception as exc:
+            last_error = "CO2 read " + str(exc)[:14]
+    elif env3 is not None:
         try:
             latest_temp = round(float(env3.read_temperature()), 1)
             latest_hum = round(float(env3.read_humidity()), 1)
@@ -874,10 +1149,16 @@ def read_sensors():
 
 def send_sensor_reading():
     global send_ok, last_error
+    temp_payload = latest_temp
+    hum_payload = latest_hum
+    if SENSOR_MODE == "co2":
+        temp_payload = None
+        hum_payload = None
+
     payload = {
         "device_id": DEVICE_ID,
-        "temperature_c": latest_temp,
-        "humidity_percent": latest_hum,
+        "temperature_c": temp_payload,
+        "humidity_percent": hum_payload,
         "motion_detected": latest_motion,
         "co2_source": "not measured",
     }
@@ -904,12 +1185,75 @@ def send_sensor_reading():
         last_error = "Send " + str(exc)[:18]
 
 
+def fetch_latest_sensor_reading():
+    global latest_temp, latest_hum, latest_motion, latest_co2, sync_status, last_error
+    try:
+        response = requests.get(LATEST_SENSOR_URL, timeout=5)
+        if response.status_code == 200:
+            data = get_json_response(response)
+            temp = data.get("temperature_c")
+            hum = data.get("humidity_pct")
+            co2 = data.get("air_quality_index")
+            if temp is not None:
+                latest_temp = round(float(temp), 1)
+            if hum is not None:
+                latest_hum = round(float(hum), 1)
+            if co2 is not None:
+                latest_co2 = int(float(co2))
+            latest_motion = bool(data.get("motion_detected", False))
+            ts = str(data.get("timestamp") or "")
+            sync_status = "Synced " + (ts[11:16] if len(ts) >= 16 else "latest")
+            return True
+        sync_status = "No saved reading"
+    except Exception as exc:
+        sync_status = "Sync failed"
+        last_error = "Sync " + str(exc)[:18]
+    return False
+
+
+def fetch_sensor_trend():
+    global trend_temp_avg, trend_hum_avg, trend_motion_count, trend_co2
+    try:
+        response = requests.get(SENSOR_HISTORY_URL, timeout=6)
+        if response.status_code != 200:
+            return False
+        rows = get_json_response(response)
+        temp_sum = 0
+        temp_count = 0
+        hum_sum = 0
+        hum_count = 0
+        motion_count = 0
+        last_co2 = None
+        for row in rows:
+            temp = row.get("temperature_c")
+            hum = row.get("humidity_pct")
+            co2 = row.get("air_quality_index")
+            if temp is not None:
+                temp_sum += float(temp)
+                temp_count += 1
+            if hum is not None:
+                hum_sum += float(hum)
+                hum_count += 1
+            if row.get("motion_detected"):
+                motion_count += 1
+            if co2 is not None:
+                last_co2 = int(float(co2))
+        trend_temp_avg = str(round(temp_sum / temp_count, 1)) if temp_count else "--"
+        trend_hum_avg = str(round(hum_sum / hum_count, 1)) if hum_count else "--"
+        trend_motion_count = str(motion_count)
+        trend_co2 = (str(last_co2) + " ppm") if last_co2 is not None else "not measured"
+        return True
+    except Exception:
+        return False
+
+
 def fetch_weather():
     global outdoor_ok, outdoor_temp, outdoor_hum, outdoor_wind, outdoor_main, outdoor_city, last_error
     try:
         response = requests.get(WEATHER_URL, timeout=5)
         if response.status_code == 200:
             data = get_json_response(response)
+            set_clock_from_iso(data.get("timestamp"))
             outdoor_temp = str(round(float(data.get("temperature_c", 0)), 1))
             outdoor_hum = str(int(float(data.get("humidity_pct", 0))))
             outdoor_wind = str(round(float(data.get("wind_speed_ms", 0)), 1))
@@ -1339,11 +1683,13 @@ def run_morning_routine():
 if UNDERTALE_UI:
     choose_wifi_on_boot()
 connect_wifi()
+fetch_latest_sensor_reading()
 init_sensors()
 read_sensors()
 send_sensor_reading()
 fetch_weather()
 fetch_forecast()
+fetch_sensor_trend()
 render(True)
 
 last_send_ms = now_ms()
@@ -1356,7 +1702,7 @@ while True:
     M5.update()
 
     if elapsed_ms(last_button_ms) >= 350:
-        raw_pressed = read_button_click()
+        raw_pressed = read_button_event()
         pressed = None
         if raw_pressed == BUTTON_PAGE:
             pressed = "PAGE"
@@ -1364,12 +1710,21 @@ while True:
             pressed = "NEXT"
         elif raw_pressed == BUTTON_ACTION:
             pressed = "ACTION"
+        elif raw_pressed == "B_LONG":
+            pressed = "CHARACTER"
 
         if pressed:
             last_button_ms = now_ms()
 
         if pressed == "PAGE":
-            page = (page + 1) % 3
+            if UNDERTALE_UI and page == PAGE_CHARACTER:
+                page = PAGE_DATA
+            else:
+                page = (page + 1) % MAIN_PAGE_COUNT
+            render(True)
+
+        elif pressed == "CHARACTER" and UNDERTALE_UI:
+            page = PAGE_CHARACTER
             render(True)
 
         elif pressed == "NEXT":
@@ -1388,6 +1743,10 @@ while True:
             elif page == PAGE_FORECAST:
                 set_label_on(status, "refresh", WHITE, 0x2563EB)
                 fetch_forecast()
+                render(True)
+            elif page == PAGE_TREND:
+                fetch_latest_sensor_reading()
+                fetch_sensor_trend()
                 render(True)
             elif UNDERTALE_UI and page == PAGE_WIFI:
                 wifi_profile_index = (wifi_profile_index + 1) % len(wifi_profile_keys)
@@ -1421,7 +1780,7 @@ while True:
     except Exception:
         pass
 
-    if latest_motion and not previous_motion:
+    if MORNING_ROUTINE_ENABLED and latest_motion and not previous_motion:
         run_morning_routine()
     previous_motion = latest_motion
 
@@ -1434,8 +1793,9 @@ while True:
     if elapsed_ms(last_weather_ms) >= WEATHER_SECONDS * 1000:
         fetch_weather()
         fetch_forecast()
+        fetch_sensor_trend()
         last_weather_ms = now_ms()
-        if page in (PAGE_DATA, PAGE_FORECAST):
+        if page == PAGE_DATA or page == PAGE_FORECAST or page == PAGE_TREND:
             render(False)
 
     if elapsed_ms(last_render_ms) >= RENDER_SECONDS * 1000:
