@@ -1,4 +1,4 @@
-"""
+﻿"""
 Streamlit dashboard entry point.
 """
 
@@ -6,6 +6,17 @@ import os
 import sys
 
 import streamlit as st
+
+from pages.current import ALL_COMPANIONS, _companion
+
+if "companion_stats" not in st.session_state:
+    # Chaque compagnon commence au niveau 1 avec 0 XP
+    st.session_state["companion_stats"] = {
+        name: {"xp": 0, "level": 1} for name, _ in ALL_COMPANIONS
+    }
+
+if "selected_companion_idx" not in st.session_state:
+    st.session_state["selected_companion_idx"] = 0
 
 st.set_page_config(
     page_title="Weather Home",
@@ -46,6 +57,18 @@ section[data-testid="stSidebar"] > div {
 
 .main {
     background: #0b0f0e;
+}
+
+.main, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+    background: #0b0f0e !important;
+}
+
+.block-container, [data-testid="stVerticalBlock"] {
+    background: transparent !important;
+}
+
+header[data-testid="stHeader"] {
+    background: #0b0f0e !important;
 }
 
 .block-container {
@@ -469,21 +492,34 @@ if "dashboard_page" not in st.session_state:
     st.session_state["dashboard_page"] = "Smart Home"
 
 with st.sidebar:
-    st.markdown("""
-    <div class="sidebar-brand">
-        <div class="pixel-avatar"></div>
-        <div class="sidebar-brand-title">WEATHER HOME</div>
-        <div class="sidebar-brand-subtitle">Smart morning companion</div>
+    # Récupération des données du compagnon actuel
+    idx = st.session_state["selected_companion_idx"]
+    name, _ = ALL_COMPANIONS[idx]
+    stats = st.session_state["companion_stats"][name]
+    
+    # Affichage du compagnon et de son Niveau/XP
+    st.markdown(f"""
+    <div class="sidebar-brand" style="text-align:center;">
+        <div style="color:#ffcc5c; font-family:'Press Start 2P'; font-size:0.6rem; margin-bottom:10px;">
+            LV {stats['level']}
+        </div>
+        <div style="margin-bottom:15px;">
+            {_companion(idx, 80)}
+        </div>
+        <div class="sidebar-brand-title">{name.upper()}</div>
+        <div class="sidebar-brand-subtitle">XP: {stats['xp'] % 5}/5 to next level</div>
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown('<div class="pixel-menu-label">SELECT MODE</div>', unsafe_allow_html=True)
 
+    # Mise à jour de ton menu avec la nouvelle page
     menu_items = [
         ("Smart Home", "Home Base"),
         ("Live Station", "Live Map"),
         ("History", "Data Archive"),
         ("Ask Data", "AI Console"),
+        ("Companion", "Monster Gym"), # La nouvelle page est bien là
     ]
     for page_key, label in menu_items:
         prefix = "> " if st.session_state["dashboard_page"] == page_key else ". "
@@ -522,7 +558,11 @@ elif page == "Live Station":
     from pages.current import render
 elif page == "History":
     from pages.history import render
-else:
+elif page == "Ask Data":
     from pages.ask import render
+elif page == "Companion":
+    from pages.game import render  # <--- Appelle ENFIN ton fichier game.py !
+else:
+    from pages.smart_home import render # Sécurité au cas où
 
 render()

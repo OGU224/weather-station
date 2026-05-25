@@ -1,3 +1,7 @@
+﻿"""
+Smart Home page — Undertale RPG aesthetic with pixel companions.
+"""
+
 import os
 import sys
 from datetime import datetime, timezone
@@ -13,46 +17,122 @@ sys.path.insert(0, REPO_ROOT)
 
 MIDDLEWARE_URL = os.getenv("MIDDLEWARE_URL", "http://127.0.0.1:5000")
 
+# ── Companion SVG sprites (16x16 pixel art, rendered as inline SVG) ──────────
 
-def _fetch(path: str, params: dict = None):
+GHOST_SVG = """<svg width="{s}" height="{s}" viewBox="0 0 16 16" style="image-rendering:pixelated;">
+<rect x="6" y="1" width="4" height="1" fill="#fff"/>
+<rect x="4" y="2" width="8" height="1" fill="#fff"/>
+<rect x="3" y="3" width="10" height="1" fill="#fff"/>
+<rect x="2" y="4" width="12" height="2" fill="#fff"/>
+<rect x="2" y="6" width="2" height="1" fill="#fff"/><rect x="4" y="6" width="1" height="1" fill="#111"/><rect x="5" y="6" width="5" height="1" fill="#fff"/><rect x="10" y="6" width="1" height="1" fill="#111"/><rect x="11" y="6" width="3" height="1" fill="#fff"/>
+<rect x="2" y="7" width="2" height="1" fill="#fff"/><rect x="4" y="7" width="2" height="1" fill="#111"/><rect x="6" y="7" width="4" height="1" fill="#fff"/><rect x="10" y="7" width="2" height="1" fill="#111"/><rect x="12" y="7" width="2" height="1" fill="#fff"/>
+<rect x="2" y="8" width="12" height="1" fill="#fff"/>
+<rect x="2" y="9" width="5" height="1" fill="#fff"/><rect x="7" y="9" width="2" height="1" fill="#111"/><rect x="9" y="9" width="5" height="1" fill="#fff"/>
+<rect x="2" y="10" width="12" height="2" fill="#fff"/>
+<rect x="2" y="12" width="3" height="1" fill="#fff"/><rect x="6" y="12" width="4" height="1" fill="#fff"/><rect x="11" y="12" width="3" height="1" fill="#fff"/>
+<rect x="2" y="13" width="2" height="1" fill="#fff"/><rect x="6" y="13" width="2" height="1" fill="#fff"/><rect x="11" y="13" width="2" height="1" fill="#fff"/>
+</svg>"""
+
+SKULL_SVG = """<svg width="{s}" height="{s}" viewBox="0 0 16 16" style="image-rendering:pixelated;">
+<rect x="5" y="1" width="6" height="1" fill="#fff"/>
+<rect x="3" y="2" width="10" height="1" fill="#fff"/>
+<rect x="2" y="3" width="12" height="1" fill="#fff"/>
+<rect x="2" y="4" width="2" height="1" fill="#fff"/><rect x="4" y="4" width="4" height="1" fill="#111"/><rect x="8" y="4" width="1" height="1" fill="#fff"/><rect x="9" y="4" width="4" height="1" fill="#111"/><rect x="13" y="4" width="1" height="1" fill="#fff"/>
+<rect x="2" y="5" width="2" height="1" fill="#fff"/><rect x="4" y="5" width="1" height="1" fill="#111"/><rect x="5" y="5" width="2" height="1" fill="#0df"/><rect x="7" y="5" width="2" height="1" fill="#111"/><rect x="9" y="5" width="1" height="1" fill="#111"/><rect x="10" y="5" width="2" height="1" fill="#0df"/><rect x="12" y="5" width="2" height="1" fill="#fff"/>
+<rect x="2" y="6" width="2" height="1" fill="#fff"/><rect x="4" y="6" width="4" height="1" fill="#111"/><rect x="8" y="6" width="1" height="1" fill="#fff"/><rect x="9" y="6" width="4" height="1" fill="#111"/><rect x="13" y="6" width="1" height="1" fill="#fff"/>
+<rect x="2" y="7" width="12" height="1" fill="#fff"/>
+<rect x="2" y="8" width="5" height="1" fill="#fff"/><rect x="7" y="8" width="2" height="1" fill="#111"/><rect x="9" y="8" width="5" height="1" fill="#fff"/>
+<rect x="2" y="9" width="1" height="1" fill="#fff"/><rect x="3" y="9" width="1" height="1" fill="#111"/><rect x="4" y="9" width="1" height="1" fill="#fff"/><rect x="5" y="9" width="1" height="1" fill="#111"/><rect x="6" y="9" width="1" height="1" fill="#fff"/><rect x="7" y="9" width="1" height="1" fill="#111"/><rect x="8" y="9" width="1" height="1" fill="#fff"/><rect x="9" y="9" width="1" height="1" fill="#111"/><rect x="10" y="9" width="1" height="1" fill="#fff"/><rect x="11" y="9" width="1" height="1" fill="#111"/><rect x="12" y="9" width="2" height="1" fill="#fff"/>
+<rect x="3" y="10" width="10" height="1" fill="#fff"/>
+<rect x="4" y="11" width="8" height="1" fill="#6bf"/>
+<rect x="3" y="12" width="10" height="2" fill="#6bf"/>
+<rect x="4" y="14" width="2" height="1" fill="#6bf"/><rect x="9" y="14" width="2" height="1" fill="#6bf"/>
+</svg>"""
+
+FLOWER_SVG = """<svg width="{s}" height="{s}" viewBox="0 0 16 16" style="image-rendering:pixelated;">
+<rect x="6" y="0" width="4" height="1" fill="#ff0"/>
+<rect x="3" y="1" width="3" height="1" fill="#ff0"/><rect x="6" y="1" width="4" height="1" fill="#ff0"/><rect x="10" y="1" width="3" height="1" fill="#ff0"/>
+<rect x="2" y="2" width="3" height="1" fill="#ff0"/><rect x="5" y="2" width="6" height="1" fill="#fec"/><rect x="11" y="2" width="3" height="1" fill="#ff0"/>
+<rect x="2" y="3" width="1" height="1" fill="#ff0"/><rect x="3" y="3" width="10" height="1" fill="#fec"/><rect x="13" y="3" width="1" height="1" fill="#ff0"/>
+<rect x="2" y="4" width="1" height="1" fill="#ff0"/><rect x="3" y="4" width="2" height="1" fill="#fec"/><rect x="5" y="4" width="2" height="1" fill="#111"/><rect x="7" y="4" width="2" height="1" fill="#fec"/><rect x="9" y="4" width="2" height="1" fill="#111"/><rect x="11" y="4" width="2" height="1" fill="#fec"/><rect x="13" y="4" width="1" height="1" fill="#ff0"/>
+<rect x="2" y="5" width="1" height="1" fill="#ff0"/><rect x="3" y="5" width="10" height="1" fill="#fec"/><rect x="13" y="5" width="1" height="1" fill="#ff0"/>
+<rect x="2" y="6" width="1" height="1" fill="#ff0"/><rect x="3" y="6" width="3" height="1" fill="#fec"/><rect x="6" y="6" width="4" height="1" fill="#111"/><rect x="10" y="6" width="3" height="1" fill="#fec"/><rect x="13" y="6" width="1" height="1" fill="#ff0"/>
+<rect x="3" y="7" width="3" height="1" fill="#ff0"/><rect x="6" y="7" width="4" height="1" fill="#ff0"/><rect x="10" y="7" width="3" height="1" fill="#ff0"/>
+<rect x="7" y="8" width="2" height="4" fill="#0a0"/>
+<rect x="5" y="9" width="2" height="1" fill="#0a0"/><rect x="9" y="10" width="2" height="1" fill="#0a0"/>
+<rect x="4" y="12" width="8" height="2" fill="#a52"/>
+</svg>"""
+
+CAT_SVG = """<svg width="{s}" height="{s}" viewBox="0 0 16 16" style="image-rendering:pixelated;">
+<rect x="2" y="0" width="2" height="1" fill="#fff"/><rect x="12" y="0" width="2" height="1" fill="#fff"/>
+<rect x="2" y="1" width="3" height="1" fill="#fff"/><rect x="11" y="1" width="3" height="1" fill="#fff"/>
+<rect x="2" y="2" width="1" height="1" fill="#f8a"/><rect x="3" y="2" width="2" height="1" fill="#fff"/><rect x="11" y="2" width="2" height="1" fill="#fff"/><rect x="13" y="2" width="1" height="1" fill="#f8a"/>
+<rect x="3" y="3" width="10" height="2" fill="#fff"/>
+<rect x="3" y="5" width="1" height="1" fill="#fff"/><rect x="4" y="5" width="2" height="1" fill="#111"/><rect x="6" y="5" width="4" height="1" fill="#fff"/><rect x="10" y="5" width="2" height="1" fill="#111"/><rect x="12" y="5" width="1" height="1" fill="#fff"/>
+<rect x="3" y="6" width="1" height="1" fill="#fff"/><rect x="4" y="6" width="1" height="1" fill="#0c0"/><rect x="5" y="6" width="1" height="1" fill="#111"/><rect x="6" y="6" width="4" height="1" fill="#fff"/><rect x="10" y="6" width="1" height="1" fill="#0c0"/><rect x="11" y="6" width="1" height="1" fill="#111"/><rect x="12" y="6" width="1" height="1" fill="#fff"/>
+<rect x="1" y="7" width="2" height="1" fill="#999"/><rect x="3" y="7" width="4" height="1" fill="#fff"/><rect x="7" y="7" width="2" height="1" fill="#f8a"/><rect x="9" y="7" width="4" height="1" fill="#fff"/><rect x="13" y="7" width="2" height="1" fill="#999"/>
+<rect x="3" y="8" width="10" height="4" fill="#fff"/>
+<rect x="3" y="12" width="2" height="2" fill="#fff"/><rect x="9" y="12" width="2" height="2" fill="#fff"/>
+<rect x="12" y="10" width="1" height="1" fill="#fff"/><rect x="13" y="9" width="1" height="1" fill="#fff"/><rect x="14" y="8" width="1" height="2" fill="#fff"/>
+</svg>"""
+
+ROBOT_SVG = """<svg width="{s}" height="{s}" viewBox="0 0 16 16" style="image-rendering:pixelated;">
+<rect x="7" y="0" width="2" height="1" fill="#ff0"/>
+<rect x="7" y="1" width="2" height="1" fill="#999"/>
+<rect x="3" y="2" width="10" height="1" fill="#999"/>
+<rect x="3" y="3" width="10" height="6" fill="#222"/>
+<rect x="3" y="3" width="1" height="6" fill="#999"/><rect x="12" y="3" width="1" height="6" fill="#999"/>
+<rect x="5" y="5" width="2" height="2" fill="#0c0"/><rect x="9" y="5" width="2" height="2" fill="#0c0"/>
+<rect x="5" y="8" width="6" height="1" fill="#0c0"/>
+<rect x="3" y="9" width="10" height="1" fill="#999"/>
+<rect x="2" y="10" width="2" height="1" fill="#999"/><rect x="4" y="10" width="8" height="3" fill="#999"/><rect x="12" y="10" width="2" height="1" fill="#999"/>
+<rect x="5" y="11" width="2" height="1" fill="#555"/><rect x="7" y="11" width="2" height="1" fill="#f22"/><rect x="9" y="11" width="2" height="1" fill="#555"/>
+<rect x="4" y="13" width="2" height="2" fill="#999"/><rect x="9" y="13" width="2" height="2" fill="#999"/>
+</svg>"""
+
+MUSHROOM_SVG = """<svg width="{s}" height="{s}" viewBox="0 0 16 16" style="image-rendering:pixelated;">
+<rect x="6" y="0" width="6" height="1" fill="#f22"/>
+<rect x="4" y="1" width="10" height="1" fill="#f22"/>
+<rect x="2" y="2" width="2" height="1" fill="#f22"/><rect x="4" y="2" width="2" height="1" fill="#fff"/><rect x="6" y="2" width="5" height="1" fill="#f22"/><rect x="11" y="2" width="2" height="1" fill="#fff"/><rect x="13" y="2" width="2" height="1" fill="#f22"/>
+<rect x="2" y="3" width="14" height="1" fill="#f22"/>
+<rect x="1" y="4" width="5" height="1" fill="#f22"/><rect x="6" y="4" width="2" height="1" fill="#fff"/><rect x="8" y="4" width="7" height="1" fill="#f22"/>
+<rect x="1" y="5" width="14" height="1" fill="#f22"/>
+<rect x="2" y="6" width="12" height="2" fill="#fec"/>
+<rect x="3" y="8" width="2" height="2" fill="#111"/><rect x="5" y="8" width="3" height="2" fill="#fec"/><rect x="8" y="8" width="2" height="2" fill="#111"/><rect x="10" y="8" width="3" height="2" fill="#fec"/>
+<rect x="2" y="9" width="1" height="1" fill="#f8a"/><rect x="12" y="9" width="1" height="1" fill="#f8a"/>
+<rect x="3" y="10" width="3" height="1" fill="#fec"/><rect x="6" y="10" width="2" height="1" fill="#111"/><rect x="8" y="10" width="5" height="1" fill="#fec"/>
+<rect x="4" y="11" width="8" height="1" fill="#fec"/>
+<rect x="5" y="12" width="6" height="1" fill="#fec"/>
+<rect x="4" y="13" width="8" height="2" fill="#a52"/>
+</svg>"""
+
+ALL_COMPANIONS = [
+    ("Ghost", GHOST_SVG), ("Skull", SKULL_SVG), ("Flower", FLOWER_SVG),
+    ("Cat", CAT_SVG), ("Robot", ROBOT_SVG), ("Mushroom", MUSHROOM_SVG),
+]
+
+
+def _companion(index, size=48):
+    _, svg = ALL_COMPANIONS[index % len(ALL_COMPANIONS)]
+    return svg.format(s=size)
+
+
+# ── Data fetching (same logic as before) ──────────────────────────────────────
+
+def _fetch(path, params=None):
     try:
-        response = requests.get(f"{MIDDLEWARE_URL}{path}", params=params, timeout=10)
-        if response.status_code == 200:
-            return response.json()
+        r = requests.get(f"{MIDDLEWARE_URL}{path}", params=params, timeout=10)
+        if r.status_code == 200:
+            return r.json()
     except requests.RequestException:
         pass
     return None
 
 
-def _post(path: str, payload: dict = None, timeout=18):
-    response = requests.post(f"{MIDDLEWARE_URL}{path}", json=payload or {}, timeout=timeout)
-    response.raise_for_status()
-    return response.json()
-
-
-def _sensor_history(hours=24):
-    data = _fetch("/api/sensors/history", params={"hours": hours})
-    if data:
-        return data
-    try:
-        from data.bigquery_client import BigQueryClient
-
-        rows = BigQueryClient().get_sensor_history(hours=hours)
-        results = []
-        for row in rows:
-            ts = row.get("timestamp")
-            results.append({
-                "timestamp": ts.isoformat() if hasattr(ts, "isoformat") else ts,
-                "device_id": row.get("device_id"),
-                "temperature_c": row.get("temperature_c"),
-                "humidity_pct": row.get("humidity_pct"),
-                "air_quality_index": row.get("air_quality_index"),
-                "co2_source": row.get("co2_source"),
-                "motion_detected": row.get("motion_detected"),
-            })
-        return results
-    except Exception:
-        return []
+def _post(path, payload=None, timeout=18):
+    r = requests.post(f"{MIDDLEWARE_URL}{path}", json=payload or {}, timeout=timeout)
+    r.raise_for_status()
+    return r.json()
 
 
 def _latest_sensor():
@@ -61,7 +141,6 @@ def _latest_sensor():
         return data
     try:
         from data.bigquery_client import BigQueryClient
-
         row = BigQueryClient().get_latest_sensor_reading()
         if not row:
             return None
@@ -79,15 +158,33 @@ def _latest_sensor():
         return None
 
 
+def _sensor_history(hours=24):
+    data = _fetch("/api/sensors/history", params={"hours": hours})
+    if data:
+        return data
+    try:
+        from data.bigquery_client import BigQueryClient
+        rows = BigQueryClient().get_sensor_history(hours=hours)
+        return [{
+            "timestamp": (r.get("timestamp").isoformat() if hasattr(r.get("timestamp"), "isoformat") else r.get("timestamp")),
+            "temperature_c": r.get("temperature_c"),
+            "humidity_pct": r.get("humidity_pct"),
+            "air_quality_index": r.get("air_quality_index"),
+            "co2_source": r.get("co2_source"),
+            "motion_detected": r.get("motion_detected"),
+        } for r in rows]
+    except Exception:
+        return []
+
+
 def _current_weather():
     data = _fetch("/api/weather/current")
     if data:
         return data
     try:
         from services.weather_service import WeatherService
-
-        weather = WeatherService().get_current_weather()
-        return weather.to_dict() if weather else None
+        w = WeatherService().get_current_weather()
+        return w.to_dict() if w else None
     except Exception:
         return None
 
@@ -99,15 +196,9 @@ def _forecast(days=3):
     try:
         from dataclasses import asdict
         from services.weather_service import WeatherService
-
-        return [asdict(day) for day in WeatherService().get_forecast(days=days)]
+        return [asdict(d) for d in WeatherService().get_forecast(days=days)]
     except Exception:
         return []
-
-
-def _spotify_devices():
-    data = _fetch("/api/music/spotify/devices")
-    return (data or {}).get("devices", [])
 
 
 def _to_df(rows):
@@ -123,599 +214,422 @@ def _to_df(rows):
     return df
 
 
-def _num(value, default=None):
+def _num(v, default=None):
     try:
-        return float(value)
+        return float(v)
     except (TypeError, ValueError):
         return default
 
 
-def _fmt(value, decimals=1, suffix=""):
-    value = _num(value)
-    if value is None:
-        return "--"
-    return f"{value:.{decimals}f}{suffix}"
+def _fmt(v, d=1, s=""):
+    v = _num(v)
+    return f"{v:.{d}f}{s}" if v is not None else "--"
 
 
-def _age_label(timestamp_value):
-    if not timestamp_value:
+def _age_label(ts):
+    if not ts:
         return "--"
     try:
-        ts = pd.to_datetime(timestamp_value, utc=True)
+        t = pd.to_datetime(ts, utc=True)
     except Exception:
         return "--"
-    if pd.isna(ts):
+    if pd.isna(t):
         return "--"
-    age_minutes = max(0, (datetime.now(timezone.utc) - ts.to_pydatetime()).total_seconds() / 60)
-    if age_minutes < 1:
+    mins = max(0, (datetime.now(timezone.utc) - t.to_pydatetime()).total_seconds() / 60)
+    if mins < 1:
         return "now"
-    if age_minutes < 60:
-        return f"{int(age_minutes)}m ago"
-    return f"{round(age_minutes / 60, 1)}h ago"
+    if mins < 60:
+        return f"{int(mins)}m ago"
+    return f"{round(mins / 60, 1)}h ago"
 
 
-def _comfort_score(latest, history_df):
+# ── Game logic ────────────────────────────────────────────────────────────────
+
+def _comfort_score(latest, df):
     score = 100
     reasons = []
     temp = _num((latest or {}).get("temperature_c"))
     hum = _num((latest or {}).get("humidity_pct"))
     co2 = _num((latest or {}).get("air_quality_index"))
-    co2_source = (latest or {}).get("co2_source")
+    co2_src = (latest or {}).get("co2_source")
 
     if temp is None:
-        score -= 12
-        reasons.append("missing temperature")
+        score -= 12; reasons.append("no temp data")
     elif temp < 20:
-        score -= min(24, int((20 - temp) * 8))
-        reasons.append("room is cool")
+        score -= min(24, int((20 - temp) * 8)); reasons.append("room is cool")
     elif temp > 24:
-        score -= min(24, int((temp - 24) * 8))
-        reasons.append("room is warm")
+        score -= min(24, int((temp - 24) * 8)); reasons.append("room is warm")
 
     if hum is None:
-        score -= 12
-        reasons.append("missing humidity")
+        score -= 12; reasons.append("no humidity data")
     elif hum < 40:
-        score -= min(30, int((40 - hum) * 3))
-        reasons.append("air is dry")
+        score -= min(30, int((40 - hum) * 3)); reasons.append("air is dry")
     elif hum > 60:
-        score -= min(24, int((hum - 60) * 2))
-        reasons.append("air is humid")
+        score -= min(24, int((hum - 60) * 2)); reasons.append("air is humid")
 
-    if co2_source == "sensor" and co2 is not None:
+    if co2_src == "sensor" and co2 is not None:
         if co2 >= 1200:
-            score -= 30
-            reasons.append("CO2 is high")
+            score -= 30; reasons.append("CO2 high")
         elif co2 >= 800:
-            score -= 14
-            reasons.append("CO2 is rising")
+            score -= 14; reasons.append("CO2 rising")
 
-    motion_events = 0
-    if not history_df.empty and "motion_detected" in history_df.columns:
-        motion_events = int((history_df["motion_detected"] == True).sum())
+    motion = 0
+    if not df.empty and "motion_detected" in df.columns:
+        motion = int((df["motion_detected"] == True).sum())
 
     score = max(0, min(100, score))
     if score >= 85:
-        label = "Ready"
-        tone = "#24c08b"
+        rank, color = "S", "#24c08b"
     elif score >= 70:
-        label = "Comfortable"
-        tone = "#25a7c8"
+        rank, color = "A", "#25a7c8"
     elif score >= 50:
-        label = "Watch"
-        tone = "#d6a529"
+        rank, color = "B", "#d6a529"
     else:
-        label = "Needs action"
-        tone = "#e25555"
-    return score, label, tone, reasons[:3], motion_events
+        rank, color = "D", "#e25555"
+    return score, rank, color, reasons[:3], motion
 
 
-def _weather_mood(weather):
-    main = str((weather or {}).get("weather_main", "")).lower()
-    temp = _num((weather or {}).get("temperature_c"))
-    if "rain" in main or "drizzle" in main:
-        return "Rain focus", "spotify: rain playlist", "#4ea5d9"
-    if temp is not None and temp >= 24:
-        return "Sunny energy", "spotify: hot playlist", "#d6a529"
-    if temp is not None and temp <= 10:
-        return "Cold start", "spotify: cold playlist", "#7aa7d9"
-    if "clear" in main:
-        return "Bright morning", "spotify: clear playlist", "#d6a529"
-    if "cloud" in main:
-        return "Calm cloudy", "spotify: cloud playlist", "#9aa6b2"
-    return "Neutral day", "spotify: default playlist", "#25a7c8"
-
-
-def _health_rank(score):
-    if score >= 90:
-        return "S", "Perfect base", "All comfort systems are in a strong state."
-    if score >= 80:
-        return "A", "Healthy room", "Small changes only, the room is ready."
-    if score >= 65:
-        return "B", "Stable room", "Comfort is fine, but one signal can improve."
-    if score >= 50:
-        return "C", "Watch zone", "The room needs attention soon."
-    return "D", "Recovery mode", "Fix comfort first: air, humidity, or temperature."
-
-
-def _weather_mood_engine(weather, score):
-    main = str((weather or {}).get("weather_main", "")).lower()
-    temp = _num((weather or {}).get("temperature_c"))
-    if "rain" in main or "drizzle" in main:
-        return {
-            "name": "Rain Quest",
-            "trait": "Focus mode",
-            "loadout": "Umbrella, calm playlist",
-            "color": "#4ea5d9",
-        }
-    if temp is not None and temp >= 24:
-        return {
-            "name": "Solar Run",
-            "trait": "High energy",
-            "loadout": "Sunglasses, water, light clothes",
-            "color": "#d6a529",
-        }
-    if temp is not None and temp <= 10:
-        return {
-            "name": "Frost Start",
-            "trait": "Warm-up mode",
-            "loadout": "Layers, jacket, slower morning",
-            "color": "#7aa7d9",
-        }
-    if "clear" in main:
-        return {
-            "name": "Clear Boost",
-            "trait": "Bright start",
-            "loadout": "Sunglasses, outdoor break",
-            "color": "#ffcc5c",
-        }
-    if "cloud" in main:
-        return {
-            "name": "Cloud Calm",
-            "trait": "Steady focus",
-            "loadout": "Light layer, relaxed playlist",
-            "color": "#9aa6b2",
-        }
-    if score < 65:
-        return {
-            "name": "Recovery Quest",
-            "trait": "Room first",
-            "loadout": "Fix comfort before leaving",
-            "color": "#e25555",
-        }
-    return {
-        "name": "Neutral Day",
-        "trait": "Balanced",
-        "loadout": "Default outfit, default mood",
-        "color": "#25a7c8",
-    }
-
-
-def _quest_objectives(score, latest, weather):
-    objectives = []
-    hum = _num((latest or {}).get("humidity_pct"))
-    temp = _num((latest or {}).get("temperature_c"))
-    co2 = _num((latest or {}).get("air_quality_index"))
-    co2_source = (latest or {}).get("co2_source")
-    main = str((weather or {}).get("weather_main", "")).lower()
-
-    if score >= 85:
-        objectives.append(("Room clear", True))
-    else:
-        objectives.append(("Improve comfort", False))
-
-    if hum is None:
-        objectives.append(("Humidity scan", False))
-    elif 40 <= hum <= 60:
-        objectives.append(("Humidity balanced", True))
-    elif hum < 40:
-        objectives.append(("Raise humidity", False))
-    else:
-        objectives.append(("Reduce humidity", False))
-
-    if temp is None:
-        objectives.append(("Temp scan", False))
-    elif 20 <= temp <= 24:
-        objectives.append(("Temp balanced", True))
-    else:
-        objectives.append(("Adjust temperature", False))
-
-    if co2_source == "sensor" and co2 is not None:
-        objectives.append(("Air clear", co2 < 800))
-
-    if "rain" in main or "drizzle" in main:
-        objectives.append(("Umbrella ready", False))
-    elif weather:
-        objectives.append(("Outdoor checked", True))
-    else:
-        objectives.append(("Outdoor scan", False))
-
-    return objectives[:5]
-
-
-def _render_health_and_mood(score, mood_engine, latest, weather):
-    rank, rank_label, rank_detail = _health_rank(score)
-    temp = _fmt((weather or {}).get("temperature_c"), 1, " C")
-    hum = _fmt((latest or {}).get("humidity_pct"), 0, "%")
-
-    st.markdown(f"""
-    <div class="boss-card">
-        <div class="dash-label">Room Health Rank</div>
-        <div class="boss-rank">{escape(rank)}</div>
-        <div class="dash-detail">{escape(rank_label)}. {escape(rank_detail)}</div>
-        <div class="health-bar"><div class="health-fill" style="width:{score}%;"></div></div>
-        <div class="dash-detail">Outdoor {escape(temp)} | Humidity {escape(hum)}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown(f"""
-    <div class="boss-card" style="--mood-color:{mood_engine['color']};">
-        <div class="mood-orb"></div>
-        <div class="dash-label">Weather Mood Engine</div>
-        <div class="dash-value" style="color:{mood_engine['color']};">{escape(mood_engine['name'])}</div>
-        <div class="dash-detail">{escape(mood_engine['trait'])}</div>
-        <div class="dash-detail">{escape(mood_engine['loadout'])}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def _tutorial_steps(score, mood_engine, objectives, briefing):
-    rank, rank_label, _ = _health_rank(score)
-    done_count = sum(1 for _, done in objectives if done)
-    total = max(1, len(objectives))
-    return [
-        {
-            "speaker": "Home Guide",
-            "title": "Welcome to Home Base",
-            "text": "This dashboard works like a tiny daily quest. Your goal is to keep the room healthy and prepare for the weather outside.",
-        },
-        {
-            "speaker": "Comfort Scout",
-            "title": "Check Your Room Rank",
-            "text": f"Your current room rank is {rank}: {rank_label}. The score reacts to temperature, humidity, air quality, and recent motion.",
-        },
-        {
-            "speaker": "Weather Oracle",
-            "title": "Read The Mood",
-            "text": f"Today is classified as {mood_engine['name']}. The mood engine turns outdoor weather into simple advice: {mood_engine['loadout']}.",
-        },
-        {
-            "speaker": "Quest Log",
-            "title": "Complete Objectives",
-            "text": f"You have completed {done_count}/{total} comfort objectives. Green objectives are already safe, yellow ones need attention.",
-        },
-        {
-            "speaker": "Morning Assistant",
-            "title": "Use The Morning Briefing",
-            "text": briefing,
-        },
-    ]
-
-
-def _render_tutorial(score, mood_engine, objectives, briefing):
-    steps = _tutorial_steps(score, mood_engine, objectives, briefing)
-    if "home_tutorial_step" not in st.session_state:
-        st.session_state["home_tutorial_step"] = 0
-    step_index = max(0, min(len(steps) - 1, st.session_state["home_tutorial_step"]))
-    step = steps[step_index]
-    progress = int(((step_index + 1) / len(steps)) * 100)
-
-    st.markdown(f"""
-    <div class="routine-panel">
-        <div class="dash-label">{escape(step["speaker"])} | Step {step_index + 1}/{len(steps)}</div>
-        <div class="routine-text">{escape(step["title"])}</div>
-        <div class="dash-detail">{escape(step["text"])}</div>
-        <div class="health-bar"><div class="health-fill" style="width:{progress}%;"></div></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    prev_col, next_col, skip_col = st.columns([1, 1, 1])
-    with prev_col:
-        if st.button("Back", use_container_width=True, disabled=step_index == 0):
-            st.session_state["home_tutorial_step"] = max(0, step_index - 1)
-            st.rerun()
-    with next_col:
-        label = "Unlock dashboard" if step_index == len(steps) - 1 else "Continue"
-        if st.button(label, use_container_width=True):
-            if step_index == len(steps) - 1:
-                st.session_state["home_tutorial_done"] = True
-            else:
-                st.session_state["home_tutorial_step"] = min(len(steps) - 1, step_index + 1)
-            st.rerun()
-    with skip_col:
-        if st.button("Skip", use_container_width=True):
-            st.session_state["home_tutorial_done"] = True
-            st.rerun()
-
-    return step_index
-
-
-def _render_morning_panel(briefing):
-    st.markdown(f"""
-    <div class="routine-panel">
-        <div class="dash-label">Assistant says</div>
-        <div class="routine-text">{escape(briefing)}</div>
-        <div class="routine-grid">
-            <span>Motion</span>
-            <span>Advice</span>
-            <span>Voice</span>
-            <span>Music</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def _render_tutorial_unlock(step_index, score, mood_engine, latest, weather, objectives, briefing):
-    if step_index == 0:
-        st.markdown('<div class="pixel-title">FIRST QUESTS</div>', unsafe_allow_html=True)
-        _render_objectives(objectives[:3])
-        _card("Goal", "Unlock Home Base", "Finish the guide to reveal the full dashboard.", "#ffcc5c")
-    elif step_index == 1:
-        st.markdown('<div class="pixel-title">UNLOCKED: HEALTH</div>', unsafe_allow_html=True)
-        _render_health_and_mood(score, mood_engine, latest, weather)
-    elif step_index == 2:
-        st.markdown('<div class="pixel-title">UNLOCKED: WEATHER MOOD</div>', unsafe_allow_html=True)
-        _card("Quest Mood", mood_engine["name"], mood_engine["trait"], mood_engine["color"])
-        _card("Loadout", mood_engine["loadout"], "weather-based advice", "#ffcc5c")
-    elif step_index == 3:
-        st.markdown('<div class="pixel-title">UNLOCKED: OBJECTIVES</div>', unsafe_allow_html=True)
-        _render_objectives(objectives)
-    else:
-        st.markdown('<div class="pixel-title">UNLOCKED: MORNING</div>', unsafe_allow_html=True)
-        _render_morning_panel(briefing)
-
-
-def _render_tutorial_reset_button():
-    reset_col, _ = st.columns([1, 4])
-    with reset_col:
-        if st.button("Replay tutorial", use_container_width=True):
-            st.session_state["home_tutorial_step"] = 0
-            st.session_state["home_tutorial_done"] = False
-            st.rerun()
-
-
-def _render_objectives(objectives):
-    rows = []
-    for text, done in objectives:
-        marker = "[OK]" if done else "[ ]"
-        color = "#24c08b" if done else "#d6a529"
-        rows.append(
-            f'<span class="smart-pill" style="border-color:{color}; color:{color};">{marker} {escape(text)}</span>'
-        )
-    st.markdown("".join(rows), unsafe_allow_html=True)
-
-
-def _outfit_advice(weather):
+def _outfit(weather):
     temp = _num((weather or {}).get("temperature_c"))
     main = str((weather or {}).get("weather_main", "")).lower()
     if "rain" in main or "drizzle" in main:
         return "Umbrella or rain jacket"
     if temp is not None and temp >= 24:
-        return "Light clothes, sunglasses, sunscreen"
+        return "Light clothes, sunglasses"
     if "clear" in main:
-        return "Sunglasses, sunscreen if outside"
+        return "Sunglasses, sunscreen"
     if temp is not None and temp <= 10:
-        return "Warm jacket or layers"
+        return "Warm jacket, layers"
     if temp is not None and temp <= 16:
-        return "Light jacket or layers"
-    return "Comfortable clothes, light layer"
+        return "Light jacket"
+    return "Comfortable clothes"
 
 
-def _ventilation_advice(latest, weather):
+def _ventilation(latest, weather):
     hum = _num((latest or {}).get("humidity_pct"))
     co2 = _num((latest or {}).get("air_quality_index"))
-    co2_source = (latest or {}).get("co2_source")
-    temp_in = _num((latest or {}).get("temperature_c"))
-    temp_out = _num((weather or {}).get("temperature_c"))
+    co2_src = (latest or {}).get("co2_source")
+    main = str((weather or {}).get("weather_main", "")).lower()
+    if co2_src == "sensor" and co2 is not None and co2 >= 1200:
+        return "Open window", "#e25555"
+    if hum is not None and hum < 40:
+        return "Keep closed", "#d6a529"
+    if "rain" in main:
+        return "Keep closed", "#4ea5d9"
+    return "Stable", "#24c08b"
+
+
+def _objectives(score, latest, weather):
+    objs = []
+    hum = _num((latest or {}).get("humidity_pct"))
+    temp = _num((latest or {}).get("temperature_c"))
+    co2 = _num((latest or {}).get("air_quality_index"))
+    co2_src = (latest or {}).get("co2_source")
     main = str((weather or {}).get("weather_main", "")).lower()
 
-    if co2_source == "sensor" and co2 is not None and co2 >= 1200:
-        return "Open window", "CO2 is high."
-    if hum is not None and hum < 40:
-        return "Avoid long airing", "Humidity is already low."
-    if temp_in is not None and temp_out is not None and temp_in > 24 and temp_out < temp_in:
-        return "Cool with outdoor air", "Outside is cooler."
-    if "rain" in main or "drizzle" in main:
-        return "Keep windows mostly closed", "Rain outside."
-    return "Stable", "No urgent action."
+    objs.append(("Room comfort", score >= 85))
+    if hum is not None:
+        objs.append(("Humidity 40-60%", 40 <= hum <= 60))
+    else:
+        objs.append(("Humidity scan", False))
+    if temp is not None:
+        objs.append(("Temp 20-24C", 20 <= temp <= 24))
+    else:
+        objs.append(("Temp scan", False))
+    if co2_src == "sensor" and co2 is not None:
+        objs.append(("Air quality", co2 < 800))
+    if "rain" in main:
+        objs.append(("Umbrella ready", False))
+    elif weather:
+        objs.append(("Outdoor checked", True))
+    return objs[:5]
 
 
-def _morning_briefing(weather):
-    if not weather:
-        return "Good morning. Weather outside is unavailable. Wear: take a light layer just in case."
-    condition = weather.get("weather_main") or "weather"
-    return (
-        "Good morning. Weather outside: "
-        f"{_fmt(weather.get('temperature_c'), 1)} degrees, {condition}. "
-        f"Wear: {_outfit_advice(weather)}."
-    )
+# ── Charts ────────────────────────────────────────────────────────────────────
 
-
-def _score_gauge(score, tone):
+def _gauge(score, color):
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=score,
-        number={"suffix": "/100", "font": {"color": "#f3f7f5", "size": 34}},
+        number={"suffix": "", "font": {"color": "#f3f7f5", "size": 38, "family": "Press Start 2P"}},
         gauge={
-            "axis": {"range": [0, 100], "tickcolor": "#7f8b89"},
-            "bar": {"color": tone},
+            "axis": {"range": [0, 100], "tickcolor": "#444", "tickfont": {"size": 9}},
+            "bar": {"color": color},
             "bgcolor": "#141819",
-            "borderwidth": 1,
-            "bordercolor": "#2d3436",
+            "borderwidth": 2, "bordercolor": "#2e3b47",
             "steps": [
-                {"range": [0, 50], "color": "#2b1d1f"},
-                {"range": [50, 70], "color": "#2b281b"},
-                {"range": [70, 85], "color": "#16282b"},
-                {"range": [85, 100], "color": "#172821"},
+                {"range": [0, 50], "color": "#1a1010"},
+                {"range": [50, 70], "color": "#1a1a10"},
+                {"range": [70, 85], "color": "#101a1a"},
+                {"range": [85, 100], "color": "#101a10"},
             ],
         },
     ))
     fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        height=245,
-        margin=dict(l=8, r=8, t=15, b=8),
+        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        height=200, margin=dict(l=10, r=10, t=10, b=10),
     )
     return fig
 
 
-def _motion_timeline(df):
+def _spark(df, col, color, title):
     fig = go.Figure()
-    if df.empty or "timestamp" not in df.columns or "motion_detected" not in df.columns:
-        fig.add_annotation(text="No motion data yet", x=0.5, y=0.5, showarrow=False)
-    else:
-        motion_df = df[df["motion_detected"] == True].copy()
-        if motion_df.empty:
-            fig.add_annotation(text="No motion detected in this period", x=0.5, y=0.5, showarrow=False)
-        else:
-            motion_df["hour"] = motion_df["timestamp"].dt.floor("h")
-            counts = motion_df.groupby("hour").size().reset_index(name="events")
-            fig.add_trace(go.Bar(x=counts["hour"], y=counts["events"], marker_color="#d6a529"))
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        height=245,
-        margin=dict(l=5, r=5, t=28, b=5),
-        yaxis_title="Motion",
-        xaxis_title="",
-    )
-    return fig
-
-
-def _mini_line(df, col, color, title):
-    fig = go.Figure()
-    if df.empty or col not in df.columns or "timestamp" not in df.columns:
-        fig.add_annotation(text="No data", x=0.5, y=0.5, showarrow=False)
+    if df.empty or col not in df.columns:
+        fig.add_annotation(text="No data", x=0.5, y=0.5, showarrow=False, font=dict(color="#555"))
     else:
         fig.add_trace(go.Scatter(
-            x=df["timestamp"],
-            y=df[col],
-            mode="lines",
-            fill="tozeroy",
+            x=df["timestamp"], y=df[col], mode="lines", fill="tozeroy",
             line=dict(color=color, width=2),
         ))
     fig.update_layout(
-        title=title,
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        height=210,
-        margin=dict(l=5, r=5, t=38, b=5),
-        showlegend=False,
+        title=dict(text=title, font=dict(family="Press Start 2P", size=8, color="#888")),
+        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        height=170, margin=dict(l=5, r=5, t=30, b=5), showlegend=False,
+        xaxis=dict(showgrid=False), yaxis=dict(showgrid=False),
     )
     return fig
 
 
-def _card(label, value, detail="", accent="#25a7c8"):
+# ── UI Components ─────────────────────────────────────────────────────────────
+
+def _ut_box(label, value, detail="", color="#25a7c8", companion_idx=None):
+    """Undertale-style stat card with optional companion sprite."""
+    sprite = ""
+    if companion_idx is not None:
+        sprite = f'<div style="position:absolute;top:8px;right:8px;opacity:0.3;">{_companion(companion_idx, 32)}</div>'
     st.markdown(f"""
-    <div class="dash-card">
-        <div class="dash-label">{label}</div>
-        <div class="dash-value" style="color:{accent};">{value}</div>
-        <div class="dash-detail">{detail}</div>
+    <div style="background:#111;border:3px solid #2e3b47;padding:14px 16px;position:relative;margin-bottom:8px;min-height:90px;">
+        {sprite}
+        <div style="color:#666;font-family:'Press Start 2P',monospace;font-size:0.45rem;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">{escape(label)}</div>
+        <div style="color:{color};font-size:1.4rem;font-weight:700;line-height:1.1;">{escape(str(value))}</div>
+        <div style="color:#888;font-size:0.8rem;margin-top:4px;">{escape(detail)}</div>
     </div>
     """, unsafe_allow_html=True)
 
 
-def render():
-    with st.spinner("Updating your home view..."):
-        latest = _latest_sensor()
-        history_df = _to_df(_sensor_history(hours=24))
-        weather = _current_weather()
-        devices = _spotify_devices()
-
-    score, comfort_label, tone, reasons, motion_count = _comfort_score(latest, history_df)
-    action, _ = _ventilation_advice(latest, weather)
-    mood, mood_detail, mood_color = _weather_mood(weather)
-    mood_engine = _weather_mood_engine(weather, score)
-    briefing = _morning_briefing(weather)
-    outfit = _outfit_advice(weather)
-    objectives = _quest_objectives(score, latest, weather)
-    active_devices = [device for device in devices if device.get("is_active")]
-    spotify_state = active_devices[0].get("name") if active_devices else "Waiting for music app"
-
-    st.markdown("""
-    <div class="pixel-shell">
-        <div class="hero-band">
-            <div>
-                <div class="eyebrow">PLAYER 1: HOME</div>
-                <h1>Home Base</h1>
-                <p>Start with the guide, then unlock the full smart-home dashboard.</p>
-            </div>
+def _ut_dialogue(speaker, text, companion_idx=0):
+    """Undertale dialogue box with companion sprite."""
+    st.markdown(f"""
+    <div style="display:flex;align-items:flex-start;gap:14px;background:#000;border:3px solid #fff;padding:14px 16px;margin-bottom:12px;">
+        <div style="flex-shrink:0;margin-top:2px;">{_companion(companion_idx, 52)}</div>
+        <div style="flex:1;">
+            <div style="color:#ff0;font-family:'Press Start 2P',monospace;font-size:0.5rem;margin-bottom:6px;">{escape(speaker)}</div>
+            <div style="color:#fff;font-size:0.88rem;line-height:1.5;">* {escape(text)}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    tutorial_done = st.session_state.get("home_tutorial_done", False)
-    if not tutorial_done:
-        game_left, game_right = st.columns([1.15, 0.85])
-        with game_left:
-            st.markdown('<div class="pixel-title">TUTORIAL QUEST</div>', unsafe_allow_html=True)
-            step_index = _render_tutorial(score, mood_engine, objectives, briefing)
-        with game_right:
-            _render_tutorial_unlock(step_index, score, mood_engine, latest, weather, objectives, briefing)
-        st.caption("Complete the guide to unlock the full Home Base.")
+
+def _ut_objectives(objs):
+    """Render quest objectives as Undertale menu items."""
+    html = '<div style="background:#111;border:3px solid #2e3b47;padding:12px 14px;margin-bottom:8px;">'
+    html += '<div style="color:#666;font-family:\'Press Start 2P\',monospace;font-size:0.45rem;margin-bottom:8px;">QUEST LOG</div>'
+    for text, done in objs:
+        color = "#24c08b" if done else "#d6a529"
+        heart = "&#9829;" if done else "&#9825;"
+        html += f'<div style="color:{color};font-size:0.78rem;padding:3px 0;font-family:monospace;">{heart} {escape(text)}</div>'
+    html += '</div>'
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def _ut_hp_bar(label, value, max_val=100, color="#24c08b"):
+    """HP-style bar."""
+    pct = max(0, min(100, int(value / max_val * 100))) if max_val > 0 else 0
+    st.markdown(f"""
+    <div style="margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+            <span style="color:#ff0;font-family:'Press Start 2P',monospace;font-size:0.45rem;">{escape(label)}</span>
+            <span style="color:#fff;font-size:0.75rem;">{value} / {max_val}</span>
+        </div>
+        <div style="height:12px;background:#440000;border:2px solid {color};">
+            <div style="height:100%;width:{pct}%;background:{color};"></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def _ut_forecast_row(forecasts):
+    """Compact forecast strip."""
+    if not forecasts:
+        st.caption("No forecast data yet.")
         return
+    html = '<div style="display:flex;gap:6px;margin-bottom:8px;">'
+    for fc in forecasts[:5]:
+        date = str(fc.get("date", ""))[-5:]
+        t_max = round(_num(fc.get("temp_max"), 0), 1)
+        t_min = round(_num(fc.get("temp_min"), 0), 1)
+        main = str(fc.get("weather_main", ""))[:6]
+        icon = fc.get("weather_icon", "")
+        icon_url = f"https://openweathermap.org/img/wn/{icon}@2x.png" if icon else ""
+        html += f"""
+        <div style="flex:1;background:#111;border:2px solid #2e3b47;padding:8px 6px;text-align:center;">
+            <div style="color:#888;font-size:0.6rem;">{date}</div>
+            {"<img src='" + icon_url + "' width='28' style='margin:2px auto;display:block;'/>" if icon_url else f"<div style='color:#fff;font-size:0.7rem;margin:4px 0;'>{main}</div>"}
+            <div style="color:#0df;font-size:0.75rem;font-weight:700;">{t_max}C</div>
+            <div style="color:#666;font-size:0.6rem;">{t_min}C</div>
+        </div>"""
+    html += '</div>'
+    st.markdown(html, unsafe_allow_html=True)
 
-    _render_tutorial_reset_button()
 
-    top_left, top_mid, top_right = st.columns([1, 1, 1])
-    with top_left:
-        st.markdown('<div class="pixel-title">HEALTH SCORE</div>', unsafe_allow_html=True)
-        st.plotly_chart(_score_gauge(score, tone), use_container_width=True)
-        _card("Room", comfort_label, ", ".join(reasons) if reasons else "Comfort OK", tone)
-    with top_mid:
-        st.markdown('<div class="pixel-title">MORNING QUEST</div>', unsafe_allow_html=True)
-        _render_morning_panel(briefing)
-        st.markdown('<div style="height: 6px;"></div>', unsafe_allow_html=True)
-        controls = st.columns(2)
-        with controls[0]:
+# ── Companion decoration strip ────────────────────────────────────────────────
+
+def _companion_strip():
+    """Row of all 6 companions as decoration."""
+    html = '<div style="display:flex;justify-content:center;gap:16px;padding:8px 0;margin-bottom:12px;opacity:0.6;">'
+    for i in range(6):
+        html += _companion(i, 36)
+    html += '</div>'
+    st.markdown(html, unsafe_allow_html=True)
+
+
+# ── Main render ───────────────────────────────────────────────────────────────
+
+def render():
+    with st.spinner("* Loading your world..."):
+        latest = _latest_sensor()
+        history_df = _to_df(_sensor_history(hours=24))
+        weather = _current_weather()
+        fcast = _forecast(days=5)
+
+    score, rank, color, reasons, motion_count = _comfort_score(latest, history_df)
+    outfit_text = _outfit(weather)
+    vent_text, vent_color = _ventilation(latest, weather)
+    objs = _objectives(score, latest, weather)
+
+    # ── Hero banner with companions ──
+    st.markdown(f"""
+    <div style="background:#000;border:3px solid #fff;padding:16px 20px;margin-bottom:14px;position:relative;overflow:hidden;">
+        <div style="position:absolute;top:10px;right:16px;opacity:0.15;display:flex;gap:8px;">
+            {_companion(0, 42)}{_companion(1, 42)}{_companion(3, 42)}
+        </div>
+        <div style="color:#ff0;font-family:'Press Start 2P',monospace;font-size:0.5rem;margin-bottom:6px;">PLAYER 1 : HOME</div>
+        <div style="color:#fff;font-size:1.5rem;font-weight:700;">Home Base</div>
+        <div style="color:#888;font-size:0.85rem;margin-top:4px;">Room comfort RPG. Keep your stats high.</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Morning briefing dialogue ──
+    w_main = str((weather or {}).get("weather_main", "weather")).lower()
+    w_temp = _fmt((weather or {}).get("temperature_c"), 1)
+    briefing = f"Good morning. Outside: {w_temp}C, {w_main}. Wear: {outfit_text.lower()}."
+    if not weather:
+        briefing = "Good morning. Weather data unavailable. Take a light layer just in case."
+
+    buddy_idx = 0
+    if "rain" in w_main:
+        buddy_idx = 0  # Ghost cries in rain
+    elif _num((weather or {}).get("temperature_c"), 20) >= 24:
+        buddy_idx = 2  # Flower loves sun
+    elif score < 50:
+        buddy_idx = 4  # Robot for alerts
+    else:
+        buddy_idx = 3  # Cat for chill
+
+    _ut_dialogue("Morning Assistant", briefing, buddy_idx)
+
+    # ── Top row: HP + Rank + Weather ──
+    col1, col2, col3 = st.columns([1.2, 0.8, 1])
+
+    with col1:
+        st.markdown(f'<div style="color:#666;font-family:\'Press Start 2P\',monospace;font-size:0.45rem;margin-bottom:6px;">ROOM HP</div>', unsafe_allow_html=True)
+        _ut_hp_bar("HP", score, 100, color)
+        _ut_hp_bar("HUM", int(_num((latest or {}).get("humidity_pct"), 0)), 100,
+                    "#e25555" if _num((latest or {}).get("humidity_pct"), 50) < 40 else "#24c08b")
+        if reasons:
+            st.caption("* " + ", ".join(reasons))
+
+    with col2:
+        st.markdown(f"""
+        <div style="background:#111;border:3px solid #2e3b47;padding:16px;text-align:center;min-height:130px;">
+            <div style="color:#666;font-family:'Press Start 2P',monospace;font-size:0.45rem;margin-bottom:8px;">RANK</div>
+            <div style="color:{color};font-family:'Press Start 2P',monospace;font-size:2.5rem;line-height:1;">{rank}</div>
+            <div style="color:#888;font-size:0.75rem;margin-top:6px;">Score {score}/100</div>
+            <div style="margin-top:8px;">{_companion(buddy_idx, 40)}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        w_icon = (weather or {}).get("weather_icon", "")
+        icon_url = f"https://openweathermap.org/img/wn/{w_icon}@2x.png" if w_icon else ""
+        st.markdown(f"""
+        <div style="background:#111;border:3px solid #2e3b47;padding:14px;text-align:center;min-height:130px;">
+            <div style="color:#666;font-family:'Press Start 2P',monospace;font-size:0.45rem;margin-bottom:4px;">OUTDOOR</div>
+            {"<img src='" + icon_url + "' width='44' style='margin:0 auto;display:block;'/>" if icon_url else ""}
+            <div style="color:#fb923c;font-size:1.3rem;font-weight:700;">{_fmt((weather or {{}}).get('temperature_c'), 1)}C</div>
+            <div style="color:#888;font-size:0.78rem;">{escape(str((weather or {{}}).get('weather_main', 'Loading')))}</div>
+            <div style="color:#666;font-size:0.7rem;">Wind {_fmt((weather or {{}}).get('wind_speed_ms'), 1)} m/s</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── Mid row: Stats + Objectives ──
+    mid1, mid2 = st.columns([1.2, 0.8])
+
+    with mid1:
+        st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
+        s1, s2, s3 = st.columns(3)
+        with s1:
+            _ut_box("Indoor", f"{_fmt((latest or {}).get('temperature_c'), 1)}C",
+                     f"{_fmt((latest or {}).get('humidity_pct'), 0)}% hum", "#25a7c8", 0)
+        with s2:
+            _ut_box("Motion", str(motion_count), "events / 24h", "#ffcc5c", 3)
+        with s3:
+            _ut_box("Ventilation", vent_text, "", vent_color, 4)
+
+        _ut_box("Outfit", outfit_text, "Weather-based advice", "#ffcc5c", 2)
+
+    with mid2:
+        st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
+        _ut_objectives(objs)
+
+        # Action buttons
+        b1, b2 = st.columns(2)
+        with b1:
             if st.button("Start mood track", use_container_width=True):
                 try:
-                    _post(
-                        "/api/music/play-mood",
-                        {"mood": (weather or {}).get("weather_main", "Clear"), "temperature_c": (weather or {}).get("temperature_c")},
-                    )
+                    _post("/api/music/play-mood", {
+                        "mood": (weather or {}).get("weather_main", "Clear"),
+                        "temperature_c": (weather or {}).get("temperature_c"),
+                    })
                     st.success("Music started")
                 except Exception:
-                    st.error("Music is unavailable right now.")
-        with controls[1]:
+                    st.error("Music unavailable")
+        with b2:
             if st.button("Save weather", use_container_width=True):
                 stored = _fetch("/api/weather/current", params={"store": "true"})
                 st.success("Saved") if stored else st.warning("Not saved")
-    with top_right:
-        st.markdown('<div class="pixel-title">WEATHER MOOD</div>', unsafe_allow_html=True)
-        _card("Quest Mood", mood_engine["name"], mood_engine["trait"], mood_engine["color"])
-        _card("Loadout", mood_engine["loadout"], "weather-based advice", "#ffcc5c")
-        _card("Music", mood, spotify_state, mood_color)
 
-    lower_left, lower_right = st.columns([1, 1])
-    with lower_left:
-        st.markdown('<div class="pixel-title">OBJECTIVES</div>', unsafe_allow_html=True)
-        _render_objectives(objectives)
-        st.markdown('<div style="height: 10px;"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="pixel-title">SIGNALS</div>', unsafe_allow_html=True)
-        signal_cols = st.columns(3)
-        with signal_cols[0]:
-            _card("Indoor", f"{_fmt((latest or {}).get('temperature_c'), 1)} C", f"{_fmt((latest or {}).get('humidity_pct'), 0)}% humidity", "#24c08b")
-        with signal_cols[1]:
-            _card("Motion", str(motion_count), "events / 24h", "#ffcc5c")
-        with signal_cols[2]:
-            _card("Air", action, "ventilation state", "#25a7c8")
-    with lower_right:
-        st.markdown('<div class="pixel-title">TODAY LOADOUT</div>', unsafe_allow_html=True)
-        _card("Outdoor", f"{_fmt((weather or {}).get('temperature_c'), 1)} C", (weather or {}).get("weather_main", "Unavailable"), "#d6a529")
-        _card("Wear", outfit, "", "#ffcc5c")
-        _render_health_and_mood(score, mood_engine, latest, weather)
+    # ── Forecast strip ──
+    st.markdown('<div style="color:#666;font-family:\'Press Start 2P\',monospace;font-size:0.45rem;margin:12px 0 6px 0;">FORECAST RADAR</div>', unsafe_allow_html=True)
+    _ut_forecast_row(fcast)
 
-    with st.expander("Show activity charts"):
-        chart_cols = st.columns(3)
-        with chart_cols[0]:
-            st.plotly_chart(_mini_line(history_df, "temperature_c", "#25a7c8", "Indoor temperature"), use_container_width=True)
-        with chart_cols[1]:
-            st.plotly_chart(_mini_line(history_df, "humidity_pct", "#24c08b", "Humidity"), use_container_width=True)
-        with chart_cols[2]:
-            st.plotly_chart(_motion_timeline(history_df), use_container_width=True)
+    # ── Companion decoration ──
+    _companion_strip()
+
+    # ── Charts (collapsed) ──
+    with st.expander("Activity charts (24h)"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.plotly_chart(_spark(history_df, "temperature_c", "#25a7c8", "TEMP"), use_container_width=True)
+        with c2:
+            st.plotly_chart(_spark(history_df, "humidity_pct", "#24c08b", "HUMIDITY"), use_container_width=True)
+        with c3:
+            fig = go.Figure()
+            if not history_df.empty and "motion_detected" in history_df.columns:
+                mdf = history_df[history_df["motion_detected"] == True].copy()
+                if not mdf.empty:
+                    mdf["hour"] = mdf["timestamp"].dt.floor("h")
+                    counts = mdf.groupby("hour").size().reset_index(name="events")
+                    fig.add_trace(go.Bar(x=counts["hour"], y=counts["events"], marker_color="#d6a529"))
+                else:
+                    fig.add_annotation(text="No motion", x=0.5, y=0.5, showarrow=False, font=dict(color="#555"))
+            else:
+                fig.add_annotation(text="No data", x=0.5, y=0.5, showarrow=False, font=dict(color="#555"))
+            fig.update_layout(
+                title=dict(text="MOTION", font=dict(family="Press Start 2P", size=8, color="#888")),
+                template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                height=170, margin=dict(l=5, r=5, t=30, b=5),
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
     st.caption(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")

@@ -1,20 +1,20 @@
-import os
-
+﻿import os
 import requests
 import streamlit as st
+from html import escape
 
-MIDDLEWARE_URL = os.getenv("MIDDLEWARE_URL", "http://127.0.0.1:5000")
+# Récupération exacte des composants graphiques et de la liste globale des compagnons
+from pages.current import _companion, ALL_COMPANIONS
 
+MIDDLEWARE_URL = os.getenv("MIDDLEWARE_URL", "https://weather-middleware-387666611940.europe-west1.run.app")
+# Liste des actions / questions typées RPG
 SUGGESTED_QUESTIONS = [
     "Summarize the latest indoor conditions.",
-    "Summarize yesterday.",
-    "What was the average temperature over the last 24 hours?",
+    "What was the average temperature over the last 24h?",
     "How many times was motion detected?",
-    "Was humidity too low recently?",
-    "How was the air quality over the last day?",
     "Should I ventilate the room?",
+    "Was air quality poor recently?",
 ]
-
 
 def _ask(question: str, device_id: str, hours: int):
     response = requests.post(
@@ -25,160 +25,161 @@ def _ask(question: str, device_id: str, hours: int):
     response.raise_for_status()
     return response.json()
 
-
 def _tts(text: str):
     response = requests.post(
         f"{MIDDLEWARE_URL}/api/voice/tts",
         json={"text": text},
         timeout=45,
     )
-    if response.status_code >= 400:
-        try:
-            detail = response.json().get("error", response.text)
-        except ValueError:
-            detail = response.text
-        raise requests.HTTPError(detail or f"TTS failed with status {response.status_code}")
+    response.raise_for_status()
     return (
         response.content,
         response.headers.get("X-TTS-Provider", "tts"),
         response.headers.get("Content-Type", "audio/mpeg").split(";")[0],
     )
 
-
 def _stt(audio_file, language_code: str):
-    files = {
-        "audio": (
-            getattr(audio_file, "name", "question.wav"),
-            audio_file.getvalue(),
-            getattr(audio_file, "type", "audio/wav"),
-        )
-    }
+    files = {"audio": (getattr(audio_file, "name", "question.wav"), audio_file.getvalue(), getattr(audio_file, "type", "audio/wav"))}
     data = {"language_code": language_code}
-    response = requests.post(
-        f"{MIDDLEWARE_URL}/api/voice/stt",
-        files=files,
-        data=data,
-        timeout=45,
-    )
-    if response.status_code >= 400:
-        try:
-            detail = response.json().get("error", response.text)
-        except ValueError:
-            detail = response.text
-        raise requests.HTTPError(detail or f"STT failed with status {response.status_code}")
+    response = requests.post(f"{MIDDLEWARE_URL}/api/voice/stt", files=files, data=data, timeout=45)
+    response.raise_for_status()
     return response.json()
 
-
 def render():
+    # --- 1. HERO HEADER (Reprend à l'identique le style de tes autres pages) ---
     st.markdown("""
     <div class="pixel-shell">
         <div class="hero-band">
-            <div class="eyebrow">AI CONSOLE</div>
-            <h1>Ask The Station</h1>
-            <p>Ask about comfort, weather, motion, and recent room trends.</p>
+            <div class="eyebrow">SYSTEM TERMINAL</div>
+            <h1>AI Console</h1>
+            <p>Direct neural link to home sensors. Query the database via natural language.</p>
             <div class="mission-row">
-                <span class="mission-chip">Smart answers</span>
-                <span class="mission-chip">Voice input</span>
-                <span class="mission-chip">Spoken reply</span>
+                <span class="mission-chip">LEVEL 20</span>
+                <span class="mission-chip">HP 99/99</span>
+                <span class="mission-chip">ATK 45</span>
+                <span class="mission-chip">DF 30</span>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        device_id = st.text_input("Room filter", value="", placeholder="Whole home")
-    with col2:
-        hours = st.selectbox("Time gate", [1, 2, 6, 12, 24, 48, 168], index=4)
+    st.markdown('<div style="height:25px;"></div>', unsafe_allow_html=True)
 
-    if "ask_question" not in st.session_state:
-        st.session_state["ask_question"] = SUGGESTED_QUESTIONS[0]
+    # --- 2. CONFIGURATION PANEL (Même structure à deux colonnes avec l'avatar) ---
+    col_left, col_right = st.columns([2, 1])
 
-    with st.expander("Command presets", expanded=True):
-        cols = st.columns(2)
-        for index, suggested in enumerate(SUGGESTED_QUESTIONS):
-            with cols[index % 2]:
-                if st.button(suggested, use_container_width=True):
-                    st.session_state["ask_question"] = suggested
+    with col_left:
+        st.markdown('<div class="pixel-title">⚙️ METADATA CONFIG</div>', unsafe_allow_html=True)
+        
+        # Boîte de configuration intégrée
+        c1, c2 = st.columns(2)
+        with c1:
+            device_id = st.text_input("Device Filter", placeholder="All sensors...", label_visibility="collapsed")
+        with c2:
+            hours = st.selectbox("Time Window", [1, 6, 12, 24, 48, 168], index=3, label_visibility="collapsed")
+        
+        st.markdown('<div style="height:15px;"></div>', unsafe_allow_html=True)
+        
+        # Dialogue Box Undertale pour guider l'utilisateur
+        st.markdown(f"""
+        <div style="background:#000; border:3px solid #fff; padding:15px; display:flex; gap:15px; align-items:center;">
+            <div style="flex-shrink:0;">{_companion(0, 48)}</div>
+            <div style="color:#fff; font-family:'Courier New', monospace; font-size:0.9rem;">
+                * System is ready.<br>
+                * Select an action from the combat menu below or type a custom query.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    with st.expander("Voice command", expanded=False):
-        language_code = st.selectbox("Speech language", ["en-US", "fr-FR"], index=0)
-        audio_input = None
-        if hasattr(st, "audio_input"):
-            audio_input = st.audio_input("Record command")
-        else:
-            st.info("Your Streamlit version does not support browser audio recording. Update Streamlit to use this.")
+    with col_right:
+        # Cadre d'affichage du compagnon de garde (comme sur ta page principale)
+        st.markdown(f"""
+        <div style="background:#050505; border:3px solid #2e3b47; text-align:center; padding:20px; border-radius:4px; height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+            {_companion(4, 80)}
+            <div style="color:#888; font-family:monospace; font-size:0.7rem; margin-top:10px; letter-spacing:2px;">ASSISTANT_ACTIVE</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-        if audio_input and st.button("Decode voice", use_container_width=True):
-            with st.spinner("Listening..."):
-                try:
-                    transcript = _stt(audio_input, language_code=language_code)
-                except requests.RequestException as exc:
-                    st.error(f"Could not transcribe audio: {exc}")
-                else:
-                    text = transcript.get("transcript", "").strip()
-                    if text:
-                        st.session_state["ask_question"] = text
-                        st.success("Voice question added below.")
-                        st.rerun()
-                    else:
-                        st.warning("No speech was detected in the recording.")
+    st.markdown('<div style="height:30px;"></div>', unsafe_allow_html=True)
 
+    # --- 3. COMBAT MENU PRESETS (Boutons style choix d'actions RPG) ---
+    st.markdown('<div class="pixel-title">⚔️ ACTIONS MENU</div>', unsafe_allow_html=True)
+    
+    cols = st.columns(3)
+    for i, suggested in enumerate(SUGGESTED_QUESTIONS):
+        with cols[i % 3]:
+            # Utilisation du cœur rouge Undertale emblématique pour chaque action
+            if st.button(f"❤️ {suggested}", use_container_width=True, key=f"preset_{i}"):
+                st.session_state["ask_question"] = suggested
+
+    st.markdown('<div style="height:25px;"></div>', unsafe_allow_html=True)
+
+    # --- 4. TERMINAL INPUT BUFFER ---
+    st.markdown('<div class="pixel-title">⌨️ INPUT BUFFER</div>', unsafe_allow_html=True)
+    
     question = st.text_area(
-        "Command line",
+        "Custom Query",
         key="ask_question",
-        height=100,
-        placeholder="Ask something like: What was the average humidity today?",
+        height=85,
+        placeholder="TYPE YOUR COMMAND OR CLICK AN ACTION...",
+        label_visibility="collapsed"
     )
 
-    ask_col, clear_col = st.columns([3, 1])
-    with ask_col:
-        ask_clicked = st.button("Run query", type="primary", use_container_width=True)
-    with clear_col:
-        if st.button("Reset", use_container_width=True):
+    # Ligne d'actions d'exécution
+    b1, b2, b3 = st.columns([2, 2, 1])
+    with b1:
+        ask_clicked = st.button("🌟 EXECUTE COMMAND", type="primary", use_container_width=True)
+    with b2:
+        with st.popover("🎤 VOCAL INPUT", use_container_width=True):
+            lang = st.radio("Language Proxy", ["en-US", "fr-FR"], horizontal=True)
+            audio = st.audio_input("Microphone Interface")
+            if audio:
+                if st.button("TRANSCRIBE STREAM"):
+                    with st.spinner("Decoding waveforms..."):
+                        res = _stt(audio, lang)
+                        st.session_state["ask_question"] = res.get("transcript", "")
+                        st.rerun()
+    with c_reset if 'c_reset' in locals() else b3:
+        if st.button("RESET", use_container_width=True):
             st.session_state.pop("last_answer_result", None)
-            st.session_state.pop("last_answer_audio", None)
             st.rerun()
 
-    if ask_clicked:
-        if not question.strip():
-            st.warning("Write a question first.")
-        else:
-            with st.spinner("Thinking..."):
-                try:
-                    result = _ask(question=question, device_id=device_id, hours=hours)
-                except requests.RequestException as exc:
-                    st.error("The assistant is unavailable right now.")
-                    return
-            st.session_state["last_answer_result"] = result
-            st.session_state.pop("last_answer_audio", None)
-            st.session_state.pop("last_answer_audio_provider", None)
+    # --- 5. THE MAIN DIALOGUE BOX (Rendu de la réponse de l'IA) ---
+    if ask_clicked and question:
+        with st.spinner("PARSING SENSOR DATA..."):
+            try:
+                res = _ask(question, device_id, hours)
+                st.session_state["last_answer_result"] = res
+            except Exception as e:
+                st.error(f"Link severed: {e}")
 
     result = st.session_state.get("last_answer_result")
     if result:
-        st.markdown('<div class="pixel-title">ASSISTANT OUTPUT</div>', unsafe_allow_html=True)
-        answer = result.get("answer", "No answer returned.")
+        st.markdown('<div style="height:30px;"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="pixel-title">💬 DIALOGUE RESPONSE</div>', unsafe_allow_html=True)
+        
+        answer = result.get("answer", "...")
+        
+        # Boîte de dialogue officielle style RPG (Cadre blanc épais, fond noir, texte blanc)
         st.markdown(f"""
-        <div class="console-panel">{answer}</div>
+        <div style="background:#000; border:4px solid #fff; padding:25px; display:flex; gap:20px; align-items:flex-start; margin-bottom:15px;">
+            <div style="flex-shrink:0; padding-top:5px;">{_companion(1, 64)}</div>
+            <div style="flex:1;">
+                <div style="color:#ffff00; font-family:monospace; font-weight:bold; font-size:0.8rem; margin-bottom:12px; letter-spacing:1px;">* ANALYSIS COMPLETE :</div>
+                <div style="color:#ffffff; font-family:'Courier New', monospace; font-size:1.1rem; line-height:1.6;">
+                    {answer}
+                </div>
+            </div>
+        </div>
         """, unsafe_allow_html=True)
 
-        source = result.get("source", "unknown")
-        if source in {"local-fallback", "local-fallback-after-error"}:
-            st.info("Answer prepared from recent station readings.")
-
-        speak_col, _ = st.columns([1.2, 2.8])
-        with speak_col:
-            if st.button("Speak", use_container_width=True):
-                with st.spinner("Preparing voice..."):
-                    try:
-                        audio, provider, content_type = _tts(answer)
-                    except requests.RequestException as exc:
-                        st.error("Voice playback is unavailable right now.")
-                    else:
-                        st.session_state["last_answer_audio"] = audio
-                        st.session_state["last_answer_audio_provider"] = provider
-                        st.session_state["last_answer_audio_type"] = content_type
-
-        audio = st.session_state.get("last_answer_audio")
-        if audio:
-            st.audio(audio, format=st.session_state.get("last_answer_audio_type", "audio/mpeg"))
+        # Section Audio et Méta-données du bas
+        audio_col, padding_col = st.columns([1.5, 3.5])
+        with audio_col:
+            if st.button("🔊 READ TEXT ALOUD", use_container_width=True):
+                with st.spinner("Synthesizing speech..."):
+                    audio_bytes, _, _ = _tts(answer)
+                    st.audio(audio_bytes, format="audio/mpeg")
+        with padding_col:
+            source = result.get("source", "BigQuery")
+            st.markdown(f"""<div style="color:#555; font-size:0.75rem; text-align:right; font-family:monospace; margin-top:12px;">DATABASE_SOURCE: {source}</div>""", unsafe_allow_html=True)
