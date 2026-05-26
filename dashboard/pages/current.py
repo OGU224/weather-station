@@ -184,7 +184,10 @@ def _co2_rows(df):
     if "co2_source" in co2_df.columns:
         sensor_rows = co2_df[co2_df["co2_source"] == "sensor"]
         if not sensor_rows.empty:
-            return sensor_rows
+            co2_df = sensor_rows
+    if "timestamp" in co2_df.columns and len(co2_df) > 60:
+        co2_df = co2_df.sort_values("timestamp").set_index("timestamp")
+        co2_df = co2_df[["air_quality_index"]].resample("5min").median().dropna().reset_index()
     return co2_df
 
 
@@ -493,9 +496,8 @@ def render():
                         fig.add_trace(go.Scatter(
                             x=co2_df["timestamp"],
                             y=co2_values,
-                            mode="lines+markers",
+                            mode="lines",
                             line=dict(color="#24c08b", width=3),
-                            marker=dict(size=5, color="#24c08b", line=dict(color="#ffffff", width=1)),
                             fill="tozeroy",
                             fillcolor="rgba(36,192,139,0.12)",
                         ))
