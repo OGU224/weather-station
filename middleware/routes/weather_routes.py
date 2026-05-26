@@ -12,6 +12,15 @@ weather_service = WeatherService()
 bq_client = BigQueryClient()
 
 
+def _client_ip():
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    if forwarded_for:
+        first_ip = forwarded_for.split(",")[0].strip()
+        if first_ip:
+            return first_ip
+    return request.remote_addr
+
+
 def _weather_location_args():
     city = request.args.get("city") or None
     country_code = request.args.get("country_code") or request.args.get("country") or None
@@ -35,7 +44,7 @@ def _weather_location_args():
         source = "query"
 
     if city is None and lat is None and lon is None:
-        location = get_ip_location()
+        location = get_ip_location(ip_address=_client_ip())
         if location:
             lat = location.get("lat")
             lon = location.get("lon")

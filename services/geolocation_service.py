@@ -1,8 +1,9 @@
-"""Approximate middleware geolocation from public IP.
+"""Approximate weather location from a public IP address.
 
-This is used only when the caller does not provide a weather location. It works
-well for the local demo because the Core2 and laptop share the same network.
-When deployed to the cloud, this gives the server location, not the device.
+When the middleware runs locally, no client IP is needed because the server and
+Core2 share the same network. When the middleware runs on Cloud Run, callers can
+pass the original client IP from X-Forwarded-For so weather follows the device
+network instead of the Google server region.
 """
 
 import logging
@@ -18,17 +19,19 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-_cached_location = None
-_cached_at = 0
+_cached_locations = {}
 _last_error = None
 
 
-def _provider_urls():
-    urls = [
-        IP_GEOLOCATION_URL,
-        "https://ipwho.is/",
-        "http://ip-api.com/json/",
-    ]
+def _provider_urls(ip_address=None):
+    ip_suffix = "/" + ip_address if ip_address else "/"
+    urls = [IP_GEOLOCATION_URL]
+    if ip_address:
+        urls.append("https://ipapi.co/" + ip_address + "/json/")
+    urls.extend([
+        "https://ipwho.is" + ip_suffix,
+        "http://ip-api.com/json" + ip_suffix,
+    ])
     unique_urls = []
     for url in urls:
         if url and url not in unique_urls:
@@ -56,29 +59,33 @@ def get_last_ip_location_error():
     return _last_error
 
 
-def get_ip_location():
+def get_ip_location(ip_address=None):
     """Return {"lat": float, "lon": float, "city": str} or None."""
-    global _cached_location, _cached_at, _last_error
+    global _last_error
 
     if not IP_GEOLOCATION_ENABLED:
         _last_error = "IP geolocation disabled"
         return None
 
+    cache_key = ip_address or "server"
     now = time.time()
-    if _cached_location and now - _cached_at < IP_GEOLOCATION_CACHE_SECONDS:
-        return dict(_cached_location)
+    cached = _cached_locations.get(cache_key)
+    if cached and now - cached["cached_at"] < IP_GEOLOCATION_CACHE_SECONDS:
+        return dict(cached["location"])
 
     errors = []
-    for url in _provider_urls():
+    for url in _provider_urls(ip_address=ip_address):
         try:
             response = requests.get(url, timeout=4)
             response.raise_for_status()
             location = _parse_location(response.json())
             if location:
-                _cached_location = location
-                _cached_at = now
+                _cached_locations[cache_key] = {
+                    "location": location,
+                    "cached_at": now,
+                }
                 _last_error = None
-                return dict(_cached_location)
+                return dict(location)
             errors.append(url + ": missing location fields")
         except Exception as exc:
             errors.append(url + ": " + str(exc))
