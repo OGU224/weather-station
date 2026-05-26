@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY config/ config/
+COPY data/ data/
+COPY services/ services/
+COPY middleware/ middleware/
+ENV FLASK_HOST=0.0.0.0
+ENV FLASK_PORT=8080
+EXPOSE 8080
+CMD ["sh", "-c", "python -c \"import os; from middleware.app import create_app; create_app().run(host='0.0.0.0', port=int(os.environ.get('PORT', '8080')), debug=False)\""]
