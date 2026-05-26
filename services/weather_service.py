@@ -21,17 +21,31 @@ class WeatherService:
 
     def __init__(self):
         self.last_error = None
-        self.params = {
+        self.default_params = {
             "q": f"{OWM_CITY},{OWM_COUNTRY_CODE}",
             "units": OWM_UNITS,
             "lang": OWM_LANG,
             "appid": OWM_API_KEY,
         }
 
-    def get_current_weather(self):
+    def _params(self, city=None, country_code=None, lat=None, lon=None):
+        params = dict(self.default_params)
+        if lat is not None and lon is not None:
+            params.pop("q", None)
+            params["lat"] = lat
+            params["lon"] = lon
+        elif city:
+            suffix = ""
+            if country_code:
+                suffix = "," + str(country_code)
+            params["q"] = str(city) + suffix
+        return params
+
+    def get_current_weather(self, city=None, country_code=None, lat=None, lon=None):
         try:
             self.last_error = None
-            resp = requests.get(f"{OWM_BASE_URL}/weather", params=self.params, timeout=10)
+            params = self._params(city=city, country_code=country_code, lat=lat, lon=lon)
+            resp = requests.get(f"{OWM_BASE_URL}/weather", params=params, timeout=10)
             resp.raise_for_status()
             d = resp.json()
             return WeatherData(
@@ -51,10 +65,11 @@ class WeatherService:
             logger.error(f"Erreur OpenWeatherMap: {e}")
             return None
 
-    def get_forecast(self, days=5):
+    def get_forecast(self, days=5, city=None, country_code=None, lat=None, lon=None):
         try:
             self.last_error = None
-            resp = requests.get(f"{OWM_BASE_URL}/forecast", params=self.params, timeout=10)
+            params = self._params(city=city, country_code=country_code, lat=lat, lon=lon)
+            resp = requests.get(f"{OWM_BASE_URL}/forecast", params=params, timeout=10)
             resp.raise_for_status()
             data = resp.json()
 

@@ -17,14 +17,14 @@ interface, voice assistant, weather recommendations, and Spotify mood playback.
 
 ```text
 M5Stack Core2
-    -> local Python service
-        -> cloud storage
-        -> weather provider
-        -> assistant and voice services
-        -> Spotify playback
+    -> Flask middleware
+        -> BigQuery storage
+        -> OpenWeatherMap outdoor weather
+        -> Gemini / Google Speech assistant services
+        -> Spotify playback trigger
 
 Streamlit dashboard
-    -> local Python service
+    -> Flask middleware and BigQuery fallback
 ```
 
 ## Run The Project
@@ -63,12 +63,15 @@ device/main.py
 
 For UIFlow 2, copy that file into the UIFlow editor as `main.py`.
 
-The public file contains placeholder WiFi/API values. Keep your real local
-values in an ignored local copy such as:
+The public file contains placeholder WiFi/API values. Put real WiFi profiles,
+API URLs, and the active sensor mode in a private Core2 file:
 
 ```text
-device/main_uiflow2_local.py
+/flash/device_config.py
 ```
+
+Use `device/device_config.example.py` as the template. Do not commit the real
+`device_config.py` file.
 
 ## Sensor Modes
 
@@ -86,6 +89,9 @@ Use:
 Because ENV III and CO2 both use Port A, they are collected in separate
 sessions. The dashboard and assistant combine recent readings by time window.
 
+For quick CO2 validation, `device/co2_session_uiflow2.py` can be run from
+UIFlow 2. The final demo should use `device/main.py`.
+
 ## Files To Know For The Presentation
 
 ```text
@@ -99,6 +105,7 @@ data/bigquery_client.py         Cloud data access
 dashboard/app.py                Dashboard shell and navigation
 dashboard/pages/                Dashboard screens
 collect_data.py                 Outdoor weather collector
+CODE_WALKTHROUGH.md             File-by-file explanation for presentation prep
 ```
 
 ## Private Files

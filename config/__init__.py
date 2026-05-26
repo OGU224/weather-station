@@ -26,6 +26,9 @@ OWM_COUNTRY_CODE = _get("OWM_COUNTRY_CODE", "CH")
 OWM_UNITS = "metric"
 OWM_LANG = "fr"
 OWM_BASE_URL = "https://api.openweathermap.org/data/2.5"
+IP_GEOLOCATION_ENABLED = _get("IP_GEOLOCATION_ENABLED", "true").lower() == "true"
+IP_GEOLOCATION_URL = _get("IP_GEOLOCATION_URL", "https://ipapi.co/json/")
+IP_GEOLOCATION_CACHE_SECONDS = _get_int("IP_GEOLOCATION_CACHE_SECONDS", 1800)
 
 # --- Google Cloud ---
 GCP_PROJECT = _get("GOOGLE_CLOUD_PROJECT")

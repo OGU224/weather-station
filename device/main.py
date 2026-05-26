@@ -1,7 +1,7 @@
-﻿"""M5Stack Core2 weather station firmware for UIFlow 2.
+"""M5Stack Core2 weather station firmware for UIFlow 2.
 
-Final UIFlow 2 firmware. Copy it into UIFlow 2 as main.py, then set local
-WiFi/API values in your private copy.
+Final UIFlow 2 firmware. Copy it into UIFlow 2 as main.py. Keep real WiFi/API
+values and local sensor mode in /flash/device_config.py on the Core2.
 
 Buttons:
   A: switch page
@@ -69,8 +69,8 @@ except Exception:
     UNDERTALE_UI = False
 
 # ---------------------------------------------------------------------------
-# Local setup.
-# Real WiFi/API values can live in /flash/device_config.py on the Core2.
+# WiFi/API setup.
+# Real WiFi/API values live in /flash/device_config.py on the Core2.
 # ---------------------------------------------------------------------------
 
 DEFAULT_WIFI_PROFILES = {
@@ -269,9 +269,8 @@ env3 = None
 co2_i2c = None
 
 
-# ---------------------------------------------------------------------------
 # Small compatibility helpers
-# ---------------------------------------------------------------------------
+#
 
 def now_ms():
     return time.ticks_ms()
@@ -485,8 +484,11 @@ def outdoor_weather_sentence():
     temp = str(outdoor_temp)
     hum = str(outdoor_hum)
     wind = str(outdoor_wind)
+    city = str(outdoor_city or "outside")
     return (
-        "Outside in Lausanne, it is "
+        "Outside in "
+        + city
+        + ", it is "
         + temp
         + " degrees with "
         + condition
@@ -520,7 +522,9 @@ def ai_morning_question():
         + str(clock_time)
         + ". Local date: "
         + str(clock_date)
-        + ". Current outdoor data: city Lausanne, temperature "
+        + ". Current outdoor data: city "
+        + str(outdoor_city or "outside")
+        + ", temperature "
         + str(outdoor_temp)
         + " degrees, weather "
         + str(outdoor_main)
@@ -1804,4 +1808,3 @@ while True:
             render(False)
 
     time.sleep_ms(50)
-
