@@ -1,4 +1,4 @@
-"""Device location cache backed by Google Geolocation WiFi scans."""
+﻿"""Device location cache backed by Google Geolocation WiFi scans."""
 
 import logging
 import time
@@ -14,10 +14,12 @@ _device_locations = {}
 _last_error = None
 
 
+# Return the latest Google WiFi geolocation error message.
 def get_last_device_location_error():
     return _last_error
 
 
+# Return the last known location for a Core2 device.
 def get_device_location(device_id):
     if not device_id:
         return None
@@ -27,6 +29,7 @@ def get_device_location(device_id):
     return dict(location)
 
 
+# Normalize visible WiFi access points for Google Geolocation.
 def _clean_wifi_access_points(access_points):
     cleaned = []
     seen = set()
@@ -54,6 +57,7 @@ def _clean_wifi_access_points(access_points):
     return cleaned[:20]
 
 
+# Update a device location using the visible WiFi networks it sent.
 def update_device_location_from_wifi(device_id, access_points):
     """Store latest device location from visible WiFi access points."""
     global _last_error

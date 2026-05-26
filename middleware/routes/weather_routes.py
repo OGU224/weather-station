@@ -1,4 +1,4 @@
-"""Weather routes under /api/weather."""
+﻿"""Weather routes under /api/weather."""
 from dataclasses import asdict
 
 from flask import Blueprint, jsonify, request
@@ -13,6 +13,7 @@ weather_service = WeatherService()
 bq_client = BigQueryClient()
 
 
+# Extract the client IP address from a Flask request.
 def _client_ip():
     forwarded_for = request.headers.get("X-Forwarded-For", "")
     if forwarded_for:
@@ -22,6 +23,7 @@ def _client_ip():
     return request.remote_addr
 
 
+# Decide which city or coordinates should be used for weather.
 def _weather_location_args():
     device_id = request.args.get("device_id") or None
     city = request.args.get("city") or None
@@ -71,6 +73,7 @@ def _weather_location_args():
     )
 
 
+# Fetch current outdoor weather for the selected location.
 @weather_bp.route("/current", methods=["GET"])
 def get_current_weather():
     location_args, location_source = _weather_location_args()
@@ -96,6 +99,7 @@ def get_current_weather():
     return jsonify(payload), 200
 
 
+# Return the forecast for the selected location.
 @weather_bp.route("/forecast", methods=["GET"])
 def get_weather_forecast():
     """Return 5-day weather forecast from OpenWeatherMap."""
@@ -114,6 +118,7 @@ def get_weather_forecast():
     return jsonify([asdict(f) for f in forecasts]), 200
 
 
+# Return stored outdoor weather history.
 @weather_bp.route("/history", methods=["GET"])
 def get_weather_history():
     """Return stored outdoor weather history from BigQuery."""

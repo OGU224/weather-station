@@ -1,7 +1,4 @@
-﻿"""
-Smart Home page — Undertale RPG aesthetic with pixel companions.
-"""
-
+﻿"""Smart Home page with an Undertale-inspired pixel aesthetic."""
 import os
 import sys
 from datetime import datetime, timezone
@@ -17,7 +14,7 @@ sys.path.insert(0, REPO_ROOT)
 
 MIDDLEWARE_URL = os.getenv("MIDDLEWARE_URL", "https://weather-middleware-387666611940.europe-west1.run.app")
 
-# ── Companion SVG sprites (16x16 pixel art, rendered as inline SVG) ──────────
+# Companion SVG sprites (16x16 pixel art, rendered as inline SVG)
 
 GHOST_SVG = """<svg width="{s}" height="{s}" viewBox="0 0 16 16" style="image-rendering:pixelated;">
 <rect x="6" y="1" width="4" height="1" fill="#fff"/>
@@ -117,7 +114,7 @@ def _companion(index, size=48):
     return svg.format(s=size)
 
 
-# ── Data fetching (same logic as before) ──────────────────────────────────────
+# Data fetching (same logic as before)
 
 def _fetch(path, params=None):
     try:
@@ -243,7 +240,7 @@ def _age_label(ts):
     return f"{round(mins / 60, 1)}h ago"
 
 
-# ── Game logic ────────────────────────────────────────────────────────────────
+# Game logic
 
 def _comfort_score(latest, df):
     score = 100
@@ -345,7 +342,7 @@ def _objectives(score, latest, weather):
     return objs[:5]
 
 
-# ── Charts ────────────────────────────────────────────────────────────────────
+# Charts
 
 def _gauge(score, color):
     fig = go.Figure(go.Indicator(
@@ -390,7 +387,7 @@ def _spark(df, col, color, title):
     return fig
 
 
-# ── UI Components ─────────────────────────────────────────────────────────────
+# UI components
 
 def _ut_box(label, value, detail="", color="#25a7c8", companion_idx=None):
     """Undertale-style stat card with optional companion sprite."""
@@ -472,7 +469,7 @@ def _ut_forecast_row(forecasts):
     st.markdown(html, unsafe_allow_html=True)
 
 
-# ── Companion decoration strip ────────────────────────────────────────────────
+# Companion decoration strip
 
 def _companion_strip():
     """Row of all 6 companions as decoration."""
@@ -483,7 +480,7 @@ def _companion_strip():
     st.markdown(html, unsafe_allow_html=True)
 
 
-# ── Main render ───────────────────────────────────────────────────────────────
+# Main render
 
 def render():
     with st.spinner("* Loading your world..."):
@@ -497,7 +494,7 @@ def render():
     vent_text, vent_color = _ventilation(latest, weather)
     objs = _objectives(score, latest, weather)
 
-    # ── Hero banner with companions ──
+    # Hero banner with companions
     st.markdown(f"""
     <div style="background:#000;border:3px solid #fff;padding:16px 20px;margin-bottom:14px;position:relative;overflow:hidden;">
         <div style="position:absolute;top:10px;right:16px;opacity:0.15;display:flex;gap:8px;">
@@ -509,7 +506,7 @@ def render():
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Morning briefing dialogue ──
+    # Morning briefing dialogue
     w_main = str((weather or {}).get("weather_main", "weather")).lower()
     w_temp = _fmt((weather or {}).get("temperature_c"), 1)
     briefing = f"Good morning. Outside: {w_temp}C, {w_main}. Wear: {outfit_text.lower()}."
@@ -528,7 +525,7 @@ def render():
 
     _ut_dialogue("Morning Assistant", briefing, buddy_idx)
 
-    # ── Top row: HP + Rank + Weather ──
+    # Top row: HP + Rank + Weather
     col1, col2, col3 = st.columns([1.2, 0.8, 1])
 
     with col1:
@@ -562,7 +559,7 @@ def render():
         </div>
         """, unsafe_allow_html=True)
 
-    # ── Mid row: Stats + Objectives ──
+    # Mid row: Stats + Objectives
     mid1, mid2 = st.columns([1.2, 0.8])
 
     with mid1:
@@ -599,14 +596,14 @@ def render():
                 stored = _fetch("/api/weather/current", params={"store": "true"})
                 st.success("Saved") if stored else st.warning("Not saved")
 
-    # ── Forecast strip ──
+    # Forecast strip
     st.markdown('<div style="color:#666;font-family:\'Press Start 2P\',monospace;font-size:0.45rem;margin:12px 0 6px 0;">FORECAST RADAR</div>', unsafe_allow_html=True)
     _ut_forecast_row(fcast)
 
-    # ── Companion decoration ──
+    # Companion decoration
     _companion_strip()
 
-    # ── Charts (collapsed) ──
+    # Charts (collapsed)
     with st.expander("Activity charts (24h)"):
         c1, c2, c3 = st.columns(3)
         with c1:

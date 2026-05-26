@@ -1,6 +1,6 @@
--- Schema des tables BigQuery.
+-- Schema of tables in BigQuery.
 --
--- Table sensor_readings :
+-- Table sensor_readings:
 --   id, device_id, timestamp, temperature_c, humidity_pct,
 --   air_quality_index, air_quality_label, co2_source, motion_detected
 --

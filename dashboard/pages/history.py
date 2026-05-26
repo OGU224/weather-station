@@ -1,6 +1,4 @@
-﻿"""
-Data Archive page — Undertale RPG style history dashboard.
-"""
+"""Data Archive page with an Undertale-inspired history dashboard."""
 
 import os
 import sys

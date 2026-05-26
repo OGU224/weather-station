@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 from flask import Flask, jsonify
 from flask_cors import CORS
@@ -15,6 +15,7 @@ from middleware.routes.voice_routes import voice_bp
 from middleware.routes.music_routes import music_bp
 from middleware.routes.location_routes import location_bp
 
+# Create the Flask middleware app and register all API routes.
 def create_app():
     load_dotenv()
     app = Flask(__name__)
@@ -27,6 +28,7 @@ def create_app():
     app.register_blueprint(music_bp, url_prefix='/api/music')
     app.register_blueprint(location_bp, url_prefix='/api/location')
     
+    # Return a small health response used to verify deployment.
     @app.route('/api/health', methods=['GET'])
     def health_check():
         return jsonify({"status": "ok", "message": "Weather Station API is running!"}), 200

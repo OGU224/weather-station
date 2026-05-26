@@ -1,6 +1,4 @@
-"""
-Modèles de données.
-"""
+﻿"""Dataclasses shared by the middleware, BigQuery client, and services."""
 
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -8,6 +6,7 @@ import uuid
 from typing import Optional
 
 
+# Represent one indoor reading sent by a Core2 device.
 @dataclass
 class SensorReading:
     motion_detected: bool = False
@@ -20,6 +19,7 @@ class SensorReading:
     timestamp: datetime = field(default_factory=datetime.utcnow)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
+    # Fill the air-quality label automatically from the CO2 value.
     def __post_init__(self):
         if self.air_quality_index is None:
             self.air_quality_label = self.air_quality_label or "not measured"
@@ -31,12 +31,14 @@ class SensorReading:
             else:
                 self.air_quality_label = "bad"
 
+    # Convert the sensor reading into a BigQuery-friendly dictionary.
     def to_dict(self):
         d = asdict(self)
         d["timestamp"] = self.timestamp.isoformat()
         return d
 
 
+# Represent one current outdoor weather snapshot.
 @dataclass
 class WeatherData:
     temperature_c: float
@@ -52,12 +54,14 @@ class WeatherData:
     timestamp: datetime = field(default_factory=datetime.utcnow)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
+    # Convert the weather snapshot into a BigQuery-friendly dictionary.
     def to_dict(self):
         d = asdict(self)
         d["timestamp"] = self.timestamp.isoformat()
         return d
 
 
+# Represent one daily forecast summary.
 @dataclass
 class ForecastDay:
     date: str

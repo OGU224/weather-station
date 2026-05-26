@@ -1,2 +1,1 @@
-"""Services layer — logique metier."""
-"""Services layer."""
+﻿"""Service layer for weather, voice, location, and music integrations."""

@@ -1,4 +1,4 @@
-"""Voice and assistant service."""
+﻿"""Voice and assistant service."""
 
 import os
 import base64
@@ -84,6 +84,7 @@ INTENT_KEYWORDS = {
 }
 
 
+# Increase raw PCM audio volume while avoiding clipping.
 def _amplify_pcm(pcm_data, gain, target_peak=28000):
     """Amplify signed 16-bit little-endian PCM without harsh clipping."""
     if gain <= 1:
@@ -112,6 +113,7 @@ def _amplify_pcm(pcm_data, gain, target_peak=28000):
     return bytes(amplified)
 
 
+# Wrap raw PCM audio bytes into a WAV file.
 def _wav_bytes_from_pcm(pcm_data, channels=1, rate=24000, sample_width=2):
     pcm_data = _amplify_pcm(pcm_data, GEMINI_TTS_GAIN)
     buffer = BytesIO()
@@ -123,6 +125,7 @@ def _wav_bytes_from_pcm(pcm_data, channels=1, rate=24000, sample_width=2):
     return buffer.getvalue()
 
 
+# Boost the volume of an existing WAV audio file.
 def _boost_wav_bytes(wav_data, gain):
     if gain <= 1:
         return wav_data
@@ -140,6 +143,7 @@ def _boost_wav_bytes(wav_data, gain):
     return target.getvalue()
 
 
+# Generate TTS audio with Gemini when configured.
 def _synthesize_with_gemini(text):
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
@@ -168,6 +172,7 @@ def _synthesize_with_gemini(text):
     return _wav_bytes_from_pcm(pcm_data), "audio/wav", "gemini-tts"
 
 
+# Generate TTS audio with Google Cloud Text-to-Speech.
 def _synthesize_with_google_cloud(text, language_code=None, voice_name=None):
     """Generate WAV audio through Google Cloud Text-to-Speech."""
     try:
@@ -199,10 +204,12 @@ def _synthesize_with_google_cloud(text, language_code=None, voice_name=None):
     return audio, "audio/wav", "google-cloud-tts"
 
 
+# Escape text before sending it to Windows PowerShell.
 def _powershell_quote(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
+# Generate local Windows TTS audio as a development fallback.
 def _synthesize_with_windows_sapi(text):
     """Generate WAV locally on Windows when Gemini TTS is unreachable."""
     if os.name != "nt":
@@ -247,6 +254,7 @@ def _synthesize_with_windows_sapi(text):
             pass
 
 
+# Pick the best available TTS provider and return audio bytes.
 def synthesize_speech(text, language_code=None, voice_name=None):
     """Return WAV audio bytes from Google Cloud TTS, with local fallbacks."""
     if not text or not text.strip():
@@ -286,6 +294,7 @@ def synthesize_speech(text, language_code=None, voice_name=None):
     raise RuntimeError("GEMINI_API_KEY is not configured and Windows TTS is unavailable.")
 
 
+# Transcribe uploaded audio with Google Speech-to-Text.
 def transcribe_speech(audio_bytes, language_code=None, content_type=None):
     """Transcribe short audio bytes with Google Cloud Speech-to-Text."""
     if not audio_bytes:
@@ -357,12 +366,14 @@ def transcribe_speech(audio_bytes, language_code=None, content_type=None):
     }
 
 
+# Convert timestamps to ISO strings for JSON responses.
 def _iso(value):
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return value
 
 
+# Parse ISO timestamps used in BigQuery rows.
 def _parse_iso_datetime(value):
     if not value:
         return None
@@ -382,12 +393,14 @@ def _parse_iso_datetime(value):
     return parsed
 
 
+# Round numeric values while preserving missing values.
 def _round(value, digits=1):
     if value is None:
         return None
     return round(float(value), digits)
 
 
+# Normalize one raw BigQuery sensor row for assistant context.
 def _sensor_row(row):
     if not row:
         return None
@@ -406,13 +419,13 @@ def _sensor_row(row):
 CITY_ALIASES = {
     "geneva": ("Geneva", "CH"),
     "geneve": ("Geneva", "CH"),
-    "genève": ("Geneva", "CH"),
+    "genÃ¨ve": ("Geneva", "CH"),
     "lausanne": ("Lausanne", "CH"),
     "chavannes": ("Chavannes-pres-Renens", "CH"),
     "chavannes pres renens": ("Chavannes-pres-Renens", "CH"),
     "renens": ("Renens", "CH"),
     "zurich": ("Zurich", "CH"),
-    "zürich": ("Zurich", "CH"),
+    "zÃ¼rich": ("Zurich", "CH"),
     "bern": ("Bern", "CH"),
     "berne": ("Bern", "CH"),
     "montreux": ("Montreux", "CH"),
@@ -430,6 +443,7 @@ LOCATION_STOP_WORDS = {
 }
 
 
+# Clean a possible city name extracted from a question.
 def _clean_city_candidate(value):
     city = str(value or "")
     city = re.split(
@@ -449,6 +463,7 @@ def _clean_city_candidate(value):
     return city
 
 
+# Detect which weather location the user asked about.
 def _weather_location_from_question(question, device_id=None):
     """Return OpenWeather location kwargs requested in a natural-language question."""
     q = normalize_question(question)
@@ -471,7 +486,7 @@ def _weather_location_from_question(question, device_id=None):
         if city:
             return {"city": city, "country_code": None}
 
-    match = re.search(r"\b(?:in|at|for|a|à)\s+([a-zA-Z][a-zA-Z -]{2,35})", str(question or ""), re.IGNORECASE)
+    match = re.search(r"\b(?:in|at|for|a|Ã )\s+([a-zA-Z][a-zA-Z -]{2,35})", str(question or ""), re.IGNORECASE)
     if match:
         city = match.group(1)
         city = re.split(r"\b(?:today|tomorrow|this|now|please|outside|weather|forecast)\b", city, flags=re.IGNORECASE)[0]
@@ -490,6 +505,7 @@ def _weather_location_from_question(question, device_id=None):
     return {}
 
 
+# Compute summary statistics for recent sensor rows.
 def _stats(rows):
     if not rows:
         return {
@@ -509,6 +525,7 @@ def _stats(rows):
     ]
     motion_events = sum(1 for r in rows if r.get("motion_detected"))
 
+    # Summarize one numeric field inside the stats helper.
     def summarize(values):
         if not values:
             return {}
@@ -529,6 +546,7 @@ def _stats(rows):
     }
 
 
+# Find the latest row where a field has a usable value.
 def _latest_non_null(rows, field, source_field=None, source_value=None):
     for row in reversed(rows or []):
         if row.get(field) is None:
@@ -539,6 +557,7 @@ def _latest_non_null(rows, field, source_field=None, source_value=None):
     return None
 
 
+# Build all sensor, weather, forecast, and history context for the assistant.
 def build_context(device_id=None, hours=24, question=None):
     """Return recent sensor/weather data and summary statistics for the assistant."""
     bq = BigQueryClient()
@@ -578,6 +597,7 @@ def build_context(device_id=None, hours=24, question=None):
     }
 
 
+# Format the assistant context into a compact prompt.
 def build_context_prompt(question, context):
     return f"""
 You are a concise cloud analytics assistant for an IoT weather station project.
@@ -595,16 +615,17 @@ Data context:
 """.strip()
 
 
+# Normalize a user question for intent detection.
 def normalize_question(question):
     """Normalize STT text so intent matching survives small recognition changes."""
     text = str(question or "").lower()
     replacements = {
-        "é": "e", "è": "e", "ê": "e", "ë": "e",
-        "à": "a", "â": "a", "ä": "a",
-        "ù": "u", "û": "u", "ü": "u",
-        "ô": "o", "ö": "o",
-        "î": "i", "ï": "i",
-        "ç": "c",
+        "Ã©": "e", "Ã¨": "e", "Ãª": "e", "Ã«": "e",
+        "Ã ": "a", "Ã¢": "a", "Ã¤": "a",
+        "Ã¹": "u", "Ã»": "u", "Ã¼": "u",
+        "Ã´": "o", "Ã¶": "o",
+        "Ã®": "i", "Ã¯": "i",
+        "Ã§": "c",
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
@@ -612,6 +633,7 @@ def normalize_question(question):
     return " ".join(text.split())
 
 
+# Detect the type of question asked by the user.
 def detect_intent(question):
     q = normalize_question(question)
     scores = {}
@@ -660,12 +682,14 @@ def detect_intent(question):
     return max(scores, key=scores.get)
 
 
+# Return a readable place name for a weather object.
 def _weather_place(weather):
     if not weather:
         return "outside"
     return weather.get("city") or "outside"
 
 
+# Answer whether rain appears in the forecast.
 def _forecast_rain_answer(forecast, weather=None):
     place = _weather_place(weather)
     rainy_days = []
@@ -683,6 +707,7 @@ def _forecast_rain_answer(forecast, weather=None):
     return "I do not have forecast data yet, so I cannot confirm rain."
 
 
+# Summarize the short forecast in one sentence.
 def _forecast_summary_answer(forecast, weather=None):
     place = _weather_place(weather)
     if not forecast:
@@ -698,6 +723,7 @@ def _forecast_summary_answer(forecast, weather=None):
     return "Forecast for " + place + ": " + "; ".join(parts) + "."
 
 
+# Give clothing advice from outdoor weather conditions.
 def _outfit_answer(weather):
     if not weather:
         return "Outdoor weather is unavailable, so take a light layer just in case."
@@ -720,6 +746,7 @@ def _outfit_answer(weather):
     return f"It is {temp} C in {place} with {desc or 'stable weather'}, so dress comfortably."
 
 
+# Decide whether opening a window is useful right now.
 def _ventilation_answer(context):
     weather = context.get("current_weather")
     latest_humidity = context.get("latest_humidity") or {}
@@ -742,6 +769,7 @@ def _ventilation_answer(context):
     return "Ventilation is optional right now; indoor humidity looks comfortable."
 
 
+# Summarize indoor comfort from temperature, humidity, and CO2.
 def _room_health_answer(context):
     latest_temperature = context.get("latest_temperature") or {}
     latest_humidity = context.get("latest_humidity") or {}
@@ -778,6 +806,7 @@ def _room_health_answer(context):
     return "I need recent indoor readings before judging room health."
 
 
+# Expand the history window when the question asks about older data.
 def _required_history_hours(question, current_hours=24):
     q = normalize_question(question)
     required = current_hours or 24
@@ -800,6 +829,7 @@ def _required_history_hours(question, current_hours=24):
     return min(max(required, 24), 24 * 14)
 
 
+# Detect whether the question refers to yesterday or previous days.
 def _history_period(question):
     q = normalize_question(question)
     if "yesterday" in q or "hier" in q:
@@ -819,6 +849,7 @@ def _history_period(question):
     return 0, None, f"the last {q or 'selected'} period"
 
 
+# Select history rows that match a requested time period.
 def _rows_for_period(rows, min_age_hours, max_age_hours):
     now = datetime.utcnow()
     selected = []
@@ -835,6 +866,7 @@ def _rows_for_period(rows, min_age_hours, max_age_hours):
     return selected
 
 
+# Detect which sensor field the question is about.
 def _question_field(question):
     q = normalize_question(question)
     if "humidity" in q or "humidite" in q or "humid" in q:
@@ -846,6 +878,7 @@ def _question_field(question):
     return "temperature_c", "temperature", " C"
 
 
+# Extract a numeric threshold mentioned in the question.
 def _extract_threshold(question):
     q = normalize_question(question)
     match = re.search(r"(\d+(?:\.\d+)?)\s*(%|percent|ppm|c|degrees)?", q)
@@ -857,6 +890,7 @@ def _extract_threshold(question):
         return None
 
 
+# Detect whether the question asks above, below, or average.
 def _comparison_mode(question):
     q = normalize_question(question)
     if any(word in q for word in ["below", "under", "less", "lower", "moins", "sous"]):
@@ -866,6 +900,7 @@ def _comparison_mode(question):
     return None
 
 
+# Answer historical sensor questions deterministically.
 def _historical_answer(question, context):
     q = normalize_question(question)
     if not any(word in q for word in ["yesterday", "today", "ago", "last", "history", "historical", "exceed", "above", "below", "over", "under", "hier", "jours", "depasse"]):
@@ -919,6 +954,7 @@ def _historical_answer(question, context):
     )
 
 
+# Answer common data questions without calling the LLM.
 def deterministic_answer(question, context):
     """Answer common dashboard/Core2 intents with stable analytics logic."""
     intent = detect_intent(question)
@@ -974,6 +1010,7 @@ def deterministic_answer(question, context):
     return None
 
 
+# Ask Gemini for a natural answer when deterministic logic is not enough.
 def _generate_with_gemini(question, context):
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
@@ -1016,6 +1053,7 @@ def _generate_with_gemini(question, context):
     return response.text.strip(), GEMINI_MODEL
 
 
+# Build a safe non-LLM answer when Gemini is unavailable.
 def fallback_answer(question, context):
     """Return a useful answer when no LLM key is configured."""
     latest = context.get("latest")
@@ -1113,6 +1151,7 @@ def fallback_answer(question, context):
     return "I found data, but I need a more specific question to summarize it."
 
 
+# Generate the final assistant answer using deterministic, LLM, or fallback logic.
 def generate_response(question, context):
     """Generate an assistant answer using Gemini, with local analytics fallback."""
     deterministic = deterministic_answer(question, context)
@@ -1135,6 +1174,7 @@ def generate_response(question, context):
     return answer, source
 
 
+# Public assistant entry point used by the API routes.
 def answer_question(question, device_id=None, hours=24):
     if not question or not question.strip():
         raise ValueError("Question is required.")

@@ -1,4 +1,4 @@
-"""Client BigQuery.
+﻿"""Client BigQuery.
 - insert_sensor_reading(reading) : stocke une lecture capteur
 - insert_weather_data(weather) : stocke une donnee meteo
 - get_latest_sensor_reading(device_id) : derniere lecture (pour sync au boot)
@@ -6,7 +6,7 @@
 - get_weather_history(hours) : historique meteo
 """
 """
-Client BigQuery — insertion et requêtes.
+Client BigQuery â€” insertion et requÃªtes.
 """
 
 import logging
@@ -19,14 +19,17 @@ from config import GCP_PROJECT, get_bq_table_id, BQ_TABLE_SENSORS, BQ_TABLE_WEAT
 logger = logging.getLogger(__name__)
 
 
+# Wrap BigQuery inserts and queries used by the middleware.
 class BigQueryClient:
 
+    # Initialize the object and its runtime state.
     def __init__(self):
         self.client = bigquery.Client(project=GCP_PROJECT)
         self.sensors_table = get_bq_table_id(BQ_TABLE_SENSORS)
         self.weather_table = get_bq_table_id(BQ_TABLE_WEATHER)
         self._sensor_schema_checked = False
 
+    # Add optional sensor columns when an older BigQuery table is missing them.
     def _ensure_sensor_optional_columns(self):
         if self._sensor_schema_checked:
             return
@@ -46,6 +49,7 @@ class BigQueryClient:
         finally:
             self._sensor_schema_checked = True
 
+    # Insert one indoor sensor reading into BigQuery.
     def insert_sensor_reading(self, reading):
         try:
             self._ensure_sensor_optional_columns()
@@ -64,6 +68,7 @@ class BigQueryClient:
             logger.error(f"Exception BigQuery: {e}")
             return False
 
+    # Insert one outdoor weather snapshot into BigQuery.
     def insert_weather_data(self, weather):
         try:
             errors = self.client.insert_rows_json(self.weather_table, [weather.to_dict()])
@@ -75,6 +80,7 @@ class BigQueryClient:
             logger.error(f"Exception BigQuery: {e}")
             return False
 
+    # Return the newest sensor reading, optionally for one device.
     def get_latest_sensor_reading(self, device_id=None):
         where_clause = "WHERE device_id = @device_id" if device_id else ""
         query = f"""
@@ -94,6 +100,7 @@ class BigQueryClient:
             logger.error(f"Query error: {e}")
             return None
 
+    # Return recent sensor readings for history and assistant context.
     def get_sensor_history(self, device_id=None, hours=24):
         device_filter = "AND device_id = @device_id" if device_id else ""
         since = datetime.utcnow() - timedelta(hours=hours)
@@ -112,6 +119,7 @@ class BigQueryClient:
             logger.error(f"Query error: {e}")
             return []
 
+    # Return recent stored outdoor weather history.
     def get_weather_history(self, hours=24):
         query = f"""
             SELECT * FROM `{self.weather_table}`

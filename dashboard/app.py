@@ -1,6 +1,5 @@
-﻿"""
-Streamlit dashboard entry point.
-"""
+﻿
+#Streamlit dashboard entry point
 
 import os
 import sys
@@ -8,11 +7,6 @@ import sys
 import streamlit as st
 
 from pages.current import ALL_COMPANIONS, _companion
-
-if "companion_stats" not in st.session_state:
-    st.session_state["companion_stats"] = {
-        name: {"xp": 0, "level": 1} for name, _ in ALL_COMPANIONS
-    }
 
 if "selected_companion_idx" not in st.session_state:
     st.session_state["selected_companion_idx"] = 0
@@ -283,18 +277,17 @@ if "dashboard_page" not in st.session_state:
 with st.sidebar:
     idx = st.session_state["selected_companion_idx"]
     name, _ = ALL_COMPANIONS[idx]
-    stats = st.session_state["companion_stats"][name]
     
     st.markdown(f"""
     <div class="sidebar-brand" style="text-align:center;">
         <div style="color:#ffcc5c; font-family:'Press Start 2P'; font-size:0.6rem; margin-bottom:10px;">
-            LV {stats['level']}
+            WEATHER PARTY
         </div>
         <div style="margin-bottom:15px;">
             {_companion(idx, 80)}
         </div>
         <div class="sidebar-brand-title">{name.upper()}</div>
-        <div class="sidebar-brand-subtitle">XP: {stats['xp'] % 5}/5 to next level</div>
+        <div class="sidebar-brand-subtitle">Cloud companion online</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -305,7 +298,6 @@ with st.sidebar:
         ("Live Station", "Live Map"),
         ("History", "Data Archive"),
         ("Ask Data", "AI Console"),
-        ("Companion", "Monster Gym"),
     ]
     
     # Rendu dynamique avec gestion de la surbrillance
@@ -341,8 +333,6 @@ elif page == "History":
     from pages.history import render
 elif page == "Ask Data":
     from pages.ask import render
-elif page == "Companion":
-    from pages.game import render
 else:
     from pages.smart_home import render
 

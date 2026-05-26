@@ -1,4 +1,4 @@
-"""Assistant and future voice routes."""
+﻿"""Assistant and future voice routes."""
 
 from io import BytesIO
 import time
@@ -16,14 +16,15 @@ from services.voice_service import (
 voice_bp = Blueprint("voice_bp", __name__)
 
 
+# Shorten and clean assistant text for the Core2 display.
 def _device_safe_text(text, max_chars=80):
     replacements = {
-        "é": "e",
-        "è": "e",
-        "ê": "e",
-        "à": "a",
-        "ç": "c",
-        "°": " degrees ",
+        "Ã©": "e",
+        "Ã¨": "e",
+        "Ãª": "e",
+        "Ã ": "a",
+        "Ã§": "c",
+        "Â°": " degrees ",
         "/": " per ",
     }
     value = str(text or "")
@@ -35,6 +36,7 @@ def _device_safe_text(text, max_chars=80):
     return value
 
 
+# Keep spoken Core2 answers short but sentence-like.
 def _complete_device_sentence(text, max_chars=140):
     value = _device_safe_text(text, max_chars=max_chars * 2)
     if len(value) <= max_chars:
@@ -55,6 +57,7 @@ def _complete_device_sentence(text, max_chars=140):
     return shortened + "."
 
 
+# Prepare a short version of an answer for TTS.
 def _speech_summary(text, question="", max_chars=70):
     q = str(question or "").lower()
     value = _device_safe_text(text, max_chars=180)
@@ -71,6 +74,7 @@ def _speech_summary(text, question="", max_chars=70):
     return _complete_device_sentence(value, max_chars=max_chars)
 
 
+# Retry TTS once when the first synthesis attempt fails.
 def _synthesize_with_retry(text, attempts=2):
     last_error = None
     for attempt in range(attempts):
@@ -83,6 +87,7 @@ def _synthesize_with_retry(text, attempts=2):
     raise last_error
 
 
+# API route that converts text into speech audio.
 @voice_bp.route("/tts", methods=["POST"])
 def text_to_speech():
     data = request.get_json(silent=True) or {}
@@ -111,6 +116,7 @@ def text_to_speech():
     return response
 
 
+# Core2-friendly TTS route with short WAV output.
 @voice_bp.route("/device-tts", methods=["GET"])
 def device_text_to_speech():
     text = _device_safe_text(request.args.get("text", ""), max_chars=180)
@@ -132,6 +138,7 @@ def device_text_to_speech():
     return response
 
 
+# API route that transcribes uploaded speech audio.
 @voice_bp.route("/stt", methods=["POST"])
 def speech_to_text():
     audio_file = request.files.get("audio")
@@ -158,6 +165,7 @@ def speech_to_text():
     return jsonify(result), 200
 
 
+# Core2-friendly route that transcribes raw device audio.
 @voice_bp.route("/device-stt", methods=["POST"])
 def device_speech_to_text():
     """Speech-to-text endpoint for Core2/UIFlow.
@@ -183,6 +191,7 @@ def device_speech_to_text():
     return jsonify(result), 200
 
 
+# Transcribe Core2 audio, answer it, and return short device text.
 @voice_bp.route("/device-audio-question", methods=["POST"])
 def device_audio_question():
     """Core2 endpoint: raw WAV audio -> transcript -> assistant answer."""
@@ -237,6 +246,7 @@ def device_audio_question():
         return jsonify({"error": f"Device audio question failed: {exc}"}), 500
 
 
+# API route that answers a typed dashboard question.
 @voice_bp.route("/ask", methods=["POST"])
 def ask_llm():
     data = request.get_json(silent=True) or {}
@@ -257,6 +267,7 @@ def ask_llm():
         return jsonify({"error": f"Assistant failed: {exc}"}), 500
 
 
+# API route that returns a short spoken comfort summary.
 @voice_bp.route("/device-summary", methods=["GET", "POST"])
 def device_summary():
     data = request.get_json(silent=True) or {}

@@ -1,4 +1,4 @@
-"""Approximate weather location from a public IP address.
+﻿"""Approximate weather location from a public IP address.
 
 When the middleware runs locally, no client IP is needed because the server and
 Core2 share the same network. When the middleware runs on Cloud Run, callers can
@@ -23,6 +23,7 @@ _cached_locations = {}
 _last_error = None
 
 
+# Build candidate IP geolocation provider URLs.
 def _provider_urls(ip_address=None):
     ip_suffix = "/" + ip_address if ip_address else "/"
     urls = []
@@ -41,6 +42,7 @@ def _provider_urls(ip_address=None):
     return unique_urls
 
 
+# Normalize an IP geolocation provider response.
 def _parse_location(data):
     if data.get("success") is False or data.get("status") == "fail":
         return None
@@ -57,10 +59,12 @@ def _parse_location(data):
     }
 
 
+# Return the latest IP geolocation error message.
 def get_last_ip_location_error():
     return _last_error
 
 
+# Locate the middleware request using IP geolocation.
 def get_ip_location(ip_address=None):
     """Return {"lat": float, "lon": float, "city": str} or None."""
     global _last_error

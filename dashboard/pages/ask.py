@@ -1,11 +1,14 @@
-﻿import os
+﻿#Streamlit page for the Ask interface
+import os
 import requests
 import streamlit as st
 from html import escape
 from pages.current import _companion, ALL_COMPANIONS
 
+#Deployed URL of the middleware
 MIDDLEWARE_URL = os.getenv("MIDDLEWARE_URL", "https://weather-middleware-387666611940.europe-west1.run.app")
 
+#StreamlitSuggested questions could add more questions in the future
 SUGGESTED_QUESTIONS = [
     "Summarize the latest indoor conditions.",
     "What was the average temperature over the last 24h?",
@@ -20,6 +23,7 @@ def _ask(question: str, device_id: str, hours: int):
         json={"question": question, "device_id": device_id or None, "hours": hours},
         timeout=30,
     )
+    #Raise an exception if the request fails helps when dealing with APIs
     response.raise_for_status()
     return response.json()
 
@@ -62,14 +66,15 @@ def render():
 
     st.markdown('<div style="height:25px;"></div>', unsafe_allow_html=True)
 
-    # Valeurs par défaut fixées en tâche de fond (Pas d'affichage de configuration métallique)
+
     device_id = None
+    #answer using the last 24h of available data
     hours = 24
 
     col_left, col_right = st.columns([2, 1])
 
     with col_left:
-        # Dialogue Box Undertale permanente guidant l'utilisateur
+        # Dialogue Box  guiding the user
         st.markdown(f"""
         <div style="background:#000; border:3px solid #fff; padding:15px; display:flex; gap:15px; align-items:center; height:100px;">
             <div style="flex-shrink:0;">{_companion(0, 48)}</div>
@@ -91,7 +96,7 @@ def render():
     st.markdown('<div style="height:30px;"></div>', unsafe_allow_html=True)
 
     st.markdown('<div class="pixel-title">⚔️ ACTIONS MENU</div>', unsafe_allow_html=True)
-    
+
     cols = st.columns(3)
     for i, suggested in enumerate(SUGGESTED_QUESTIONS):
         with cols[i % 3]:
@@ -101,7 +106,7 @@ def render():
     st.markdown('<div style="height:25px;"></div>', unsafe_allow_html=True)
 
     st.markdown('<div class="pixel-title">⌨️ INPUT BUFFER</div>', unsafe_allow_html=True)
-    
+
     question = st.text_area(
         "Custom Query",
         key="ask_question",
@@ -140,9 +145,9 @@ def render():
     if result:
         st.markdown('<div style="height:30px;"></div>', unsafe_allow_html=True)
         st.markdown('<div class="pixel-title">💬 DIALOGUE RESPONSE</div>', unsafe_allow_html=True)
-        
+
         answer = result.get("answer", "...")
-        
+
         st.markdown(f"""
         <div style="background:#000; border:4px solid #fff; padding:25px; display:flex; gap:20px; align-items:flex-start; margin-bottom:15px;">
             <div style="flex-shrink:0; padding-top:5px;">{_companion(1, 64)}</div>
@@ -162,5 +167,7 @@ def render():
                     audio_bytes, _, _ = _tts(answer)
                     st.audio(audio_bytes, format="audio/mpeg")
         with padding_col:
-            source = result.get("source", "BigQuery")
-            st.markdown(f"""<div style="color:#555; font-size:0.75rem; text-align:right; font-family:monospace; margin-top:12px;">DATABASE_SOURCE: {source}</div>""", unsafe_allow_html=True)
+            st.markdown(
+                """<div style="color:#555; font-size:0.75rem; text-align:right; font-family:monospace; margin-top:12px;">ANSWER READY</div>""",
+                unsafe_allow_html=True,
+            )

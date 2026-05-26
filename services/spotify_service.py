@@ -1,4 +1,4 @@
-"""Spotify playback service for the smart-home morning routine."""
+﻿"""Spotify playback service for the smart-home morning routine."""
 
 import base64
 import os
@@ -16,6 +16,7 @@ SPOTIFY_API_BASE = "https://api.spotify.com/v1"
 SPOTIFY_SCOPES = "user-read-playback-state user-modify-playback-state"
 
 
+# Read a required Spotify environment variable.
 def _get_required_env(name):
     value = os.getenv(name, "").strip()
     if not value:
@@ -23,6 +24,7 @@ def _get_required_env(name):
     return value
 
 
+# Build the Spotify client authorization header.
 def _client_auth_header():
     client_id = _get_required_env("SPOTIFY_CLIENT_ID")
     client_secret = _get_required_env("SPOTIFY_CLIENT_SECRET")
@@ -30,6 +32,7 @@ def _client_auth_header():
     return {"Authorization": f"Basic {token}"}
 
 
+# Build the Spotify account authorization URL.
 def get_authorization_url():
     """Return a Spotify consent URL for the user to open once."""
     client_id = _get_required_env("SPOTIFY_CLIENT_ID")
@@ -45,6 +48,7 @@ def get_authorization_url():
     return f"{SPOTIFY_AUTH_URL}?{urlencode(params)}"
 
 
+# Exchange a Spotify authorization code for refresh credentials.
 def exchange_code_for_token(code):
     """Exchange OAuth code for tokens. Paste refresh_token into .env."""
     redirect_uri = _get_required_env("SPOTIFY_REDIRECT_URI")
@@ -62,6 +66,7 @@ def exchange_code_for_token(code):
     return response.json()
 
 
+# Refresh the Spotify access token using the saved refresh token.
 def refresh_access_token():
     refresh_token = _get_required_env("SPOTIFY_REFRESH_TOKEN")
     response = requests.post(
@@ -77,6 +82,7 @@ def refresh_access_token():
     return response.json()["access_token"]
 
 
+# Build authenticated headers for Spotify Web API requests.
 def _spotify_headers():
     return {
         "Authorization": f"Bearer {refresh_access_token()}",
@@ -84,6 +90,7 @@ def _spotify_headers():
     }
 
 
+# List Spotify playback devices available for the account.
 def get_devices():
     response = requests.get(
         f"{SPOTIFY_API_BASE}/me/player/devices",
@@ -94,6 +101,7 @@ def get_devices():
     return response.json().get("devices", [])
 
 
+# Choose the Spotify playlist that matches weather mood and temperature.
 def _playlist_for_mood(mood, temperature_c=None):
     mood_text = str(mood or "").lower()
     try:
@@ -114,6 +122,7 @@ def _playlist_for_mood(mood, temperature_c=None):
     return os.getenv("SPOTIFY_MOOD_DEFAULT_URI", "")
 
 
+# Start Spotify playback for the selected weather mood.
 def play_mood(mood=None, temperature_c=None, device_id=None):
     """Start Spotify playback for a weather mood on an active Spotify device."""
     uri = _playlist_for_mood(mood, temperature_c=temperature_c)

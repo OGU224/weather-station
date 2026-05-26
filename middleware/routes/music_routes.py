@@ -1,4 +1,4 @@
-"""Music routes for smart-home Spotify playback."""
+﻿"""Music routes for smart-home Spotify playback."""
 
 from flask import Blueprint, jsonify, request
 
@@ -12,6 +12,7 @@ from services.spotify_service import (
 music_bp = Blueprint("music_bp", __name__)
 
 
+# API route that starts Spotify account authorization.
 @music_bp.route("/spotify/auth-url", methods=["GET"])
 def spotify_auth_url():
     try:
@@ -20,6 +21,7 @@ def spotify_auth_url():
         return jsonify({"error": str(exc)}), 500
 
 
+# API route that receives the Spotify authorization callback.
 @music_bp.route("/spotify/callback", methods=["GET"])
 def spotify_callback():
     code = request.args.get("code", "")
@@ -38,6 +40,7 @@ def spotify_callback():
         return jsonify({"error": str(exc)}), 500
 
 
+# API route that lists Spotify playback devices.
 @music_bp.route("/spotify/devices", methods=["GET"])
 def spotify_devices():
     try:
@@ -47,6 +50,7 @@ def spotify_devices():
         return jsonify({"error": str(exc)}), 500
 
 
+# API route that triggers weather-based Spotify playback.
 @music_bp.route("/play-mood", methods=["GET", "POST"])
 def play_weather_mood():
     data = request.get_json(silent=True) or {}

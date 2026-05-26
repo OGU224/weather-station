@@ -1,12 +1,4 @@
-"""Service meteo — OpenWeatherMap.
-- get_current_weather() -> WeatherData
-- get_forecast(days=5) -> list[ForecastDay]
-- get_icon_url(icon_code) -> URL de l icone
-Utilise OWM_API_KEY et OWM_CITY depuis config.
-"""
-"""
-Service météo — OpenWeatherMap.
-"""
+﻿"""OpenWeatherMap service for current conditions and short forecasts."""
 
 import logging
 import requests
@@ -17,8 +9,10 @@ from data.models import WeatherData, ForecastDay
 logger = logging.getLogger(__name__)
 
 
+# Fetch current weather and forecast data from OpenWeatherMap.
 class WeatherService:
 
+    # Initialize the object and its runtime state.
     def __init__(self):
         self.last_error = None
         self.default_params = {
@@ -28,6 +22,7 @@ class WeatherService:
             "appid": OWM_API_KEY,
         }
 
+    # Build OpenWeatherMap query parameters for a city or coordinates.
     def _params(self, city=None, country_code=None, lat=None, lon=None):
         params = dict(self.default_params)
         if lat is not None and lon is not None:
@@ -41,6 +36,7 @@ class WeatherService:
             params["q"] = str(city) + suffix
         return params
 
+    # Fetch the current outdoor weather for the selected location.
     def get_current_weather(self, city=None, country_code=None, lat=None, lon=None):
         try:
             self.last_error = None
@@ -65,6 +61,7 @@ class WeatherService:
             logger.error(f"Erreur OpenWeatherMap: {e}")
             return None
 
+    # Fetch and summarize the short OpenWeatherMap forecast.
     def get_forecast(self, days=5, city=None, country_code=None, lat=None, lon=None):
         try:
             self.last_error = None

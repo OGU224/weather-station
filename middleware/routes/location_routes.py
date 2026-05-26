@@ -1,4 +1,4 @@
-"""Device location routes."""
+﻿"""Device location routes."""
 
 from flask import Blueprint, jsonify, request
 
@@ -11,6 +11,7 @@ from services.device_location_service import (
 location_bp = Blueprint("location_bp", __name__)
 
 
+# API route that receives WiFi scan data for device geolocation.
 @location_bp.route("/wifi", methods=["POST"])
 def update_wifi_location():
     data = request.get_json(silent=True) or {}
@@ -35,6 +36,7 @@ def update_wifi_location():
     }), 200
 
 
+# API route that returns the last known device location.
 @location_bp.route("/device/<device_id>", methods=["GET"])
 def get_location(device_id):
     location = get_device_location(device_id)

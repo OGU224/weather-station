@@ -1,4 +1,4 @@
-"""Routes capteurs — /api/sensors/"""
+﻿"""Routes capteurs â€” /api/sensors/"""
 from flask import Blueprint, request, jsonify
 from datetime import datetime, timezone
 from data.models import SensorReading
@@ -9,6 +9,7 @@ bq_client = BigQueryClient()
 sensor_bp = Blueprint('sensor_bp', __name__)
 
 
+# Convert optional request values into floats.
 def _optional_float(value):
     if value is None or value == "":
         return None
@@ -18,6 +19,7 @@ def _optional_float(value):
         return None
 
 
+# Convert optional request values into integers.
 def _optional_int(value):
     if value is None or value == "":
         return None
@@ -27,12 +29,14 @@ def _optional_int(value):
         return None
 
 
+# Parse incoming timestamps or create the current timestamp.
 def _iso_timestamp(value):
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return value
 
 
+# Receive a Core2 sensor reading and store it in BigQuery.
 @sensor_bp.route('/reading', methods=['POST'])
 def post_reading():
     data = request.json
@@ -71,6 +75,7 @@ def post_reading():
     else:
         return jsonify({"error": "Failed to save data to BigQuery"}), 500
 
+# Return the latest stored sensor reading.
 @sensor_bp.route('/latest', methods=['GET'])
 def get_latest():
     device_id = request.args.get('device_id') or None
@@ -89,6 +94,7 @@ def get_latest():
         }), 200
     return jsonify({"message": "No data found"}), 404
 
+# Return recent sensor history rows.
 @sensor_bp.route('/history', methods=['GET'])
 def get_history():
     device_id = request.args.get('device_id') or None

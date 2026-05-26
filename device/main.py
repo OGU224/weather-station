@@ -1,43 +1,44 @@
-"""M5Stack Core2 weather station firmware for UIFlow 2.
+﻿#M5Stack Core2 weather station firmware for UIFlow 2.
 
-Final UIFlow 2 firmware. Copy it into UIFlow 2 as main.py. Keep real WiFi/API
-values and local sensor mode in /flash/device_config.py on the Core2.
-
-Buttons:
+"""Buttons:
   A: switch page
   B: refresh on data page, next question on assistant page
   B long press: choose avatar
   C: ask selected question, record voice question, or speak answer
 """
-
+#microPython imports
 import time
 import ujson
 import sys
 
+#Depending on the UIFlow used or MicroPython need to try these requests
 try:
     import requests
 except Exception:
     import urequests as requests
-
+#Same idea as the requests
 try:
     import network
 except Exception:
+    #Nonetwork availabe case
     network = None
 
 import M5
 from M5 import *
 
+#Sensors
 try:
     from hardware import I2C, Pin
 except Exception:
     I2C = None
     Pin = None
-
+#Temeprature and humidity sensor env3
 try:
     from unit import ENVUnit
 except Exception:
     ENVUnit = None
 
+#Organisation of files in the core2
 for _path in ("device/ui", "ui", "/flash", "/flash/ui"):
     try:
         if _path in sys.path:
@@ -49,7 +50,7 @@ for _path in ("/flash/ui", "/flash", "ui", "device/ui"):
         sys.path.insert(0, _path)
     except Exception:
         pass
-
+#Our customization with the gamified UI
 try:
     from components import init as ui_init, clear_screen
     from companion import Buddy, CHARACTERS
@@ -68,11 +69,8 @@ try:
 except Exception:
     UNDERTALE_UI = False
 
-# ---------------------------------------------------------------------------
-# WiFi/API setup.
-# Real WiFi/API values live in /flash/device_config.py on the Core2.
-# ---------------------------------------------------------------------------
 
+# WiFi/API setup. Real WiFi/API values live in /flash/device_config.py on the Core2.(placeholders)
 DEFAULT_WIFI_PROFILES = {
     "hotspot": {
         "ssid": "YOUR_HOTSPOT_SSID",
@@ -120,10 +118,11 @@ def _load_wifi_config():
             break
     return profiles, active
 
-
+#loading of the selected wifi profile
 WIFI_PROFILES, ACTIVE_PROFILE = _load_wifi_config()
 ACTIVE_WIFI = WIFI_PROFILES[ACTIVE_PROFILE]
 
+#Main use is fallback in case device_config doesnt override them
 WIFI_SSID = ACTIVE_WIFI["ssid"]
 WIFI_PASSWORD = ACTIVE_WIFI["password"]
 API_BASE_URL = ACTIVE_WIFI["api"]
@@ -151,6 +150,7 @@ SPOTIFY_MUSIC_ENABLED = True
 LOCAL_MUSIC_FALLBACK_ENABLED = False
 SPOTIFY_TIMEOUT_SECONDS = 18
 TIMEZONE_OFFSET_HOURS = 2
+#This is the prompt sent to the assistant for the motion-triggered morning brief.
 MORNING_QUESTION = (
     "Generate a very short smart-home briefing for someone who just entered "
     "the room. Adapt the greeting and clothing advice to the local time. "
@@ -165,6 +165,7 @@ BUTTON_PAGE = "A"
 BUTTON_NEXT = "B"
 BUTTON_ACTION = "C"
 
+#Prepare API Endpoints and build all the endpoints by using the URL
 API_BASE = API_BASE_URL.rstrip("/")
 SENSOR_URL = API_BASE + "/api/sensors/reading"
 LATEST_SENSOR_URL = API_BASE + "/api/sensors/latest?device_id="
@@ -180,10 +181,7 @@ DEVICE_TTS_URL = API_BASE + "/api/voice/device-tts"
 MUSIC_MOOD_URL = API_BASE + "/api/music/play-mood"
 LOCATION_WIFI_URL = API_BASE + "/api/location/wifi"
 
-
-# ---------------------------------------------------------------------------
 # UI constants/state
-# ---------------------------------------------------------------------------
 
 PAGE_DATA = 0
 PAGE_FORECAST = 1
@@ -273,20 +271,21 @@ co2_i2c = None
 
 
 # Small compatibility helpers
-#
 
+# Return the current Core2 tick counter in milliseconds.
 def now_ms():
     return time.ticks_ms()
 
-
+# Return how many milliseconds passed since a saved tick value.
 def elapsed_ms(start):
     return time.ticks_diff(time.ticks_ms(), start)
 
-
+# Check whether a year has an extra day in February.
 def _is_leap_year(year):
     return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
 
 
+# Return the number of days in a given month.
 def _month_days(year, month):
     if month == 2:
         return 29 if _is_leap_year(year) else 28
@@ -295,6 +294,7 @@ def _month_days(year, month):
     return 31
 
 
+# Synchronize the local Core2 clock from an ISO timestamp.
 def set_clock_from_iso(timestamp):
     global clock_time, clock_date, clock_year, clock_month, clock_day, clock_hour, clock_minute, clock_sync_ms
     try:
@@ -336,6 +336,7 @@ def set_clock_from_iso(timestamp):
         pass
 
 
+# Update the displayed clock using elapsed time since the last sync.
 def refresh_clock_display():
     global clock_time, clock_date
     if clock_year <= 0 or clock_month <= 0 or clock_day <= 0:
@@ -365,6 +366,7 @@ def refresh_clock_display():
         pass
 
 
+# Convert text to simple ASCII so it renders safely on the Core2.
 def ascii_text(value):
     text = str(value or "")
     replacements = [
@@ -382,6 +384,7 @@ def ascii_text(value):
     return cleaned
 
 
+# Shorten text to fit the small Core2 screen.
 def trim(value, max_chars):
     text = ascii_text(value).replace("\n", " ")
     text = " ".join(text.split())
@@ -390,6 +393,7 @@ def trim(value, max_chars):
     return text
 
 
+# Shorten text while trying to keep a complete sentence.
 def trim_sentence(value, max_chars):
     text = trim(value, max_chars * 2)
     if len(text) <= max_chars:
@@ -409,6 +413,7 @@ def trim_sentence(value, max_chars):
     return text[:max_chars].rstrip(" ,.;:") + "."
 
 
+# Check whether a text contains clothing or weather advice.
 def has_outfit_advice(text):
     value = str(text or "").lower()
     keywords = [
@@ -429,6 +434,7 @@ def has_outfit_advice(text):
     return False
 
 
+# Return the current local hour if the Core2 clock is known.
 def local_hour():
     try:
         if clock_time and clock_time != "--:--":
@@ -438,6 +444,7 @@ def local_hour():
     return None
 
 
+# Decide whether the current local time is during daylight hours.
 def is_daylight_hour():
     hour = local_hour()
     if hour is None:
@@ -445,6 +452,7 @@ def is_daylight_hour():
     return hour >= 7 and hour < 19
 
 
+# Choose a greeting that matches the current time of day.
 def smart_greeting():
     hour = local_hour()
     if hour is None or hour < 12:
@@ -454,6 +462,7 @@ def smart_greeting():
     return "Good evening"
 
 
+# Generate fallback clothing advice from outdoor weather values.
 def local_outfit_advice():
     weather = str(outdoor_main or "").lower()
     try:
@@ -476,6 +485,7 @@ def local_outfit_advice():
     return "Dress comfortably, and take a light layer just in case."
 
 
+# Build a readable sentence describing the current outdoor weather.
 def outdoor_weather_sentence():
     if not outdoor_ok:
         return "I could not load the outdoor weather right now."
@@ -503,6 +513,7 @@ def outdoor_weather_sentence():
     )
 
 
+# Build a short non-AI morning briefing as a reliable fallback.
 def morning_briefing_text():
     if not outdoor_ok:
         return smart_greeting() + ". Weather outside: unavailable. Wear: take a light layer just in case."
@@ -518,6 +529,7 @@ def morning_briefing_text():
     )
 
 
+# Build the prompt sent to the assistant for the morning briefing.
 def ai_morning_question():
     return (
         MORNING_QUESTION
@@ -540,6 +552,7 @@ def ai_morning_question():
     )
 
 
+# Validate that the AI morning briefing is short, useful, and time-aware.
 def valid_morning_briefing(text):
     value = str(text or "").lower()
     if len(value) < 35:
@@ -555,6 +568,7 @@ def valid_morning_briefing(text):
     return has_outfit_advice(value)
 
 
+# Ask the backend for an AI morning briefing and fall back if needed.
 def get_ai_morning_briefing():
     try:
         response = requests.post(
@@ -572,6 +586,7 @@ def get_ai_morning_briefing():
     return morning_briefing_text()
 
 
+# Encode a text value so it can be safely used inside a URL.
 def url_encode(value):
     safe = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~"
     encoded = ""
@@ -585,6 +600,7 @@ def url_encode(value):
     return encoded
 
 
+# Read, close, and parse a JSON HTTP response.
 def get_json_response(response):
     body = response.text
     try:
@@ -594,6 +610,7 @@ def get_json_response(response):
     return ujson.loads(body)
 
 
+# Read a Core2 button state across UIFlow API variants.
 def button_is_down(button):
     try:
         return button.isPressed()
@@ -612,6 +629,7 @@ b_down_ms = 0
 b_long_sent = False
 
 
+# Convert physical button states into A, B, C, or long-press events.
 def read_button_event():
     global last_a_down, last_b_down, last_c_down, b_down_ms, b_long_sent
 
@@ -640,6 +658,7 @@ def read_button_event():
     return event
 
 
+# Draw a rectangle using the available Core2 graphics API.
 def fill_rect(x, y, w, h, color):
     try:
         Widgets.Rectangle(x, y, w, h, color, color)
@@ -650,6 +669,7 @@ def fill_rect(x, y, w, h, color):
             pass
 
 
+# Update a label with cleaned text and an optional color.
 def set_label(label, text, color=None):
     label.setText(ascii_text(text))
     if color is not None:
@@ -659,6 +679,7 @@ def set_label(label, text, color=None):
             pass
 
 
+# Update a label with cleaned text and explicit foreground/background colors.
 def set_label_on(label, text, fg, bg):
     label.setText(ascii_text(text))
     try:
@@ -667,9 +688,7 @@ def set_label_on(label, text, fg, bg):
         pass
 
 
-# ---------------------------------------------------------------------------
 # Boot/UI objects
-# ---------------------------------------------------------------------------
 
 M5.begin()
 Widgets.fillScreen(BG)
@@ -685,6 +704,7 @@ line6 = Widgets.Label("", 16, 188, 1.0, WHITE, BG, Widgets.FONTS.DejaVu12)
 footer = Widgets.Label("A:page", 12, 219, 1.0, MUTED, FOOTER, Widgets.FONTS.DejaVu12)
 
 
+# Clear fallback UI text lines on the Core2 screen.
 def clear_lines():
     set_label(line1, "")
     set_label(line2, "")
@@ -694,6 +714,7 @@ def clear_lines():
     set_label(line6, "")
 
 
+# Draw the fallback page frame with a title and footer.
 def draw_base(title, color):
     Widgets.fillScreen(BG)
     fill_rect(0, 0, 320, 32, color)
@@ -703,6 +724,7 @@ def draw_base(title, color):
     clear_lines()
 
 
+# Split long text into short lines for the Core2 screen.
 def wrap_text(text, width, max_lines):
     words = trim(text, width * max_lines + 20).split(" ")
     lines = [""]
@@ -722,12 +744,14 @@ def wrap_text(text, width, max_lines):
     return lines[:max_lines]
 
 
+# Format a sensor value with a suffix or show a placeholder.
 def display_value(value, suffix=""):
     if value is None:
         return "--"
     return str(value) + suffix
 
 
+# Return the current indoor comfort alert for the data page.
 def current_alert():
     if last_error:
         return trim(last_error, 22), RED
@@ -742,6 +766,7 @@ def current_alert():
     return "Waiting upload", MUTED
 
 
+# Render the fallback live data page.
 def render_data(full=True):
     if full:
         draw_base("Cloud Weather", HEADER)
@@ -763,6 +788,7 @@ def render_data(full=True):
     set_label_on(footer, BUTTON_PAGE + ":forecast   " + BUTTON_NEXT + ":refresh", MUTED, FOOTER)
 
 
+# Format one forecast row for display.
 def forecast_line(index):
     if index >= len(forecast_days):
         return "--", ""
@@ -779,6 +805,7 @@ def forecast_line(index):
     return date + "  " + temps, str(item.get("weather_main", ""))
 
 
+# Render the fallback forecast page.
 def render_forecast(full=True):
     if full:
         draw_base("Forecast", 0x2563EB)
@@ -798,6 +825,7 @@ def render_forecast(full=True):
     set_label_on(footer, BUTTON_PAGE + ":assistant   " + BUTTON_NEXT + ":refresh", MUTED, FOOTER)
 
 
+# Render the fallback assistant page.
 def render_assistant(full=True):
     if full:
         draw_base("Assistant", PURPLE)
@@ -845,6 +873,7 @@ def render_assistant(full=True):
     )
 
 
+# Render the active page using the custom UI when available.
 def render(full=True):
     if page == PAGE_DATA:
         render_data(full)
@@ -854,13 +883,11 @@ def render(full=True):
         render_assistant(full)
 
 
-# ---------------------------------------------------------------------------
+
 # Undertale Core2 UI integration.
-#
 # The original labels above stay as a fallback for UIFlow, but when the
 # imported UI package is available we override the render functions only.
 # Sensor, STT, TTS, morning routine and Spotify logic remain the local version.
-# ---------------------------------------------------------------------------
 
 if UNDERTALE_UI:
     try:
@@ -924,12 +951,15 @@ if UNDERTALE_UI:
             "trend_co2": trend_co2,
         }
 
+    # Render the fallback live data page.
     def render_data(full=True):
         render_undertale(PAGE_DATA, _ui_state(), buddy, full)
 
+    # Render the fallback forecast page.
     def render_forecast(full=True):
         render_undertale(PAGE_FORECAST, _ui_state(), buddy, full)
 
+    # Render the fallback assistant page.
     def render_assistant(full=True):
         render_undertale(PAGE_ASSISTANT, _ui_state(), buddy, full)
 
@@ -942,6 +972,7 @@ if UNDERTALE_UI:
     def render_character(full=True):
         render_undertale(PAGE_CHARACTER, _ui_state(), buddy, full)
 
+    # Render the active page using the custom UI when available.
     def render(full=True):
         if page == PAGE_DATA:
             render_data(full)
@@ -1019,10 +1050,9 @@ if UNDERTALE_UI:
         apply_wifi_profile(wifi_profile_index)
 
 
-# ---------------------------------------------------------------------------
 # Connectivity and sensors
-# ---------------------------------------------------------------------------
 
+# Connect the Core2 to the selected WiFi profile.
 def connect_wifi():
     global wifi_ok, last_error, wifi_status
     if UNDERTALE_UI:
@@ -1087,6 +1117,7 @@ def connect_wifi():
     return False
 
 
+# Convert a scanned WiFi BSSID into standard MAC address text.
 def _bssid_to_mac(bssid):
     try:
         values = []
@@ -1101,6 +1132,7 @@ def _bssid_to_mac(bssid):
     return ""
 
 
+# Send nearby WiFi networks to the middleware for location detection.
 def submit_wifi_location():
     global last_error
     if network is None:
@@ -1160,6 +1192,7 @@ def submit_wifi_location():
         return False
 
 
+# Initialize the ENV III, PIR, or CO2 sensors depending on sensor mode.
 def init_sensors():
     global env3, co2_i2c, last_error
     if I2C is None or Pin is None:
@@ -1186,11 +1219,13 @@ def init_sensors():
             last_error = "ENV " + str(exc)[:18]
 
 
+# Send a low-level command to the SGP30 CO2/TVOC sensor.
 def _sgp30_write_command(command):
     if co2_i2c is not None:
         co2_i2c.writeto(0x58, bytearray([(command >> 8) & 0xFF, command & 0xFF]))
 
 
+# Read CO2 and TVOC values from the SGP30 sensor.
 def _sgp30_read_co2_tvoc():
     if co2_i2c is None:
         return None, None
@@ -1202,6 +1237,7 @@ def _sgp30_read_co2_tvoc():
     return co2, tvoc
 
 
+# Read the currently connected indoor sensors.
 def read_sensors():
     global latest_temp, latest_hum, latest_motion, latest_co2, last_error
     if SENSOR_MODE == "co2":
@@ -1228,6 +1264,7 @@ def read_sensors():
             latest_motion = False
 
 
+# Send the latest sensor reading to the middleware.
 def send_sensor_reading():
     global send_ok, last_error
     temp_payload = latest_temp
@@ -1266,6 +1303,7 @@ def send_sensor_reading():
         last_error = "Send " + str(exc)[:18]
 
 
+# Fetch the latest stored sensor reading for this Core2.
 def fetch_latest_sensor_reading():
     global latest_temp, latest_hum, latest_motion, latest_co2, sync_status, last_error
     try:
@@ -1292,6 +1330,7 @@ def fetch_latest_sensor_reading():
     return False
 
 
+# Fetch recent sensor history used by the trend page.
 def fetch_sensor_trend():
     global trend_temp_avg, trend_hum_avg, trend_motion_count, trend_co2
     try:
@@ -1328,6 +1367,7 @@ def fetch_sensor_trend():
         return False
 
 
+# Fetch current outdoor weather from the middleware.
 def fetch_weather():
     global outdoor_ok, outdoor_temp, outdoor_hum, outdoor_wind, outdoor_main, outdoor_city, last_error
     try:
@@ -1352,6 +1392,7 @@ def fetch_weather():
     outdoor_ok = False
 
 
+# Fetch the short outdoor forecast from the middleware.
 def fetch_forecast():
     global forecast_days
     try:
@@ -1367,6 +1408,7 @@ def fetch_forecast():
         pass
 
 
+# Generate instant local answers for common assistant questions.
 def local_preset_answer(question):
     q = str(question or "").lower()
 
@@ -1411,10 +1453,9 @@ def local_preset_answer(question):
     return None
 
 
-# ---------------------------------------------------------------------------
 # Assistant, STT, TTS
-# ---------------------------------------------------------------------------
 
+# Send a typed or preset question to the backend assistant.
 def ask_text(question):
     global answer_ready, last_answer, last_error
     answer_ready = False
@@ -1447,6 +1488,7 @@ def ask_text(question):
     render_assistant(True)
 
 
+# Increase raw microphone audio volume before sending it.
 def amplify_pcm(buffer, gain):
     if gain <= 1:
         return
@@ -1465,6 +1507,7 @@ def amplify_pcm(buffer, gain):
         buffer[index + 1] = (sample >> 8) & 0xFF
 
 
+# Record raw microphone audio from the Core2.
 def record_pcm():
     try:
         Mic.deinit()
@@ -1483,6 +1526,7 @@ def record_pcm():
     return audio
 
 
+# Record speech, send it for STT and assistant answer, then display the result.
 def ask_by_voice():
     global answer_ready, last_answer, last_transcript, last_error
     answer_ready = False
@@ -1552,6 +1596,7 @@ def ask_by_voice():
     render_assistant(True)
 
 
+# Ask the middleware to play Spotify music that matches the weather mood.
 def play_mood_music(condition=""):
     mood = str(condition or "").lower()
     if "rain" in mood or "drizzle" in mood:
@@ -1586,6 +1631,7 @@ def play_mood_music(condition=""):
         pass
 
 
+# Estimate how long a WAV audio response will play.
 def estimate_wav_seconds(audio_bytes):
     """Estimate WAV duration so TTS is not interrupted by music."""
     try:
@@ -1604,6 +1650,7 @@ def estimate_wav_seconds(audio_bytes):
     return 8
 
 
+# Request TTS audio from the middleware and play it on the Core2 speaker.
 def speak_text(text):
     global last_error, last_answer, answer_ready
     text = trim_sentence(text, 150)
@@ -1671,10 +1718,12 @@ def speak_text(text):
     return True
 
 
+# Speak the latest assistant answer aloud.
 def speak_answer():
     speak_text(last_answer)
 
 
+# Play Spotify mood music based on the current outdoor condition.
 def play_spotify_mood():
     global last_error
     if not SPOTIFY_MUSIC_ENABLED:
@@ -1719,6 +1768,7 @@ def play_spotify_mood():
         return False
 
 
+# Run the motion-triggered smart-home morning briefing.
 def run_morning_routine():
     global page, answer_ready, last_answer, last_transcript, last_error, last_morning_ms
     if not MORNING_ROUTINE_ENABLED:
@@ -1757,9 +1807,8 @@ def run_morning_routine():
             play_mood_music(outdoor_main)
 
 
-# ---------------------------------------------------------------------------
+
 # Main
-# ---------------------------------------------------------------------------
 
 if UNDERTALE_UI:
     choose_wifi_on_boot()

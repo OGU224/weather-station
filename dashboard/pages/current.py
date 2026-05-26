@@ -1,10 +1,7 @@
-﻿"""
-Live Map page — Undertale RPG sensor dashboard with pixel companions.
-"""
-
+﻿
+#Live Map page — Undertale RPG sensor dashboard with pixel companions.
 import os
 import sys
-from dataclasses import asdict
 from datetime import datetime
 from html import escape
 
@@ -16,9 +13,11 @@ sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 MIDDLEWARE_URL = os.getenv("MIDDLEWARE_URL", "https://weather-middleware-387666611940.europe-west1.run.app")
+
+# Indoor humidity comfort threshold used by dashboard alerts.
 HUMIDITY_ALERT = 40
 
-# ── Companion SVG sprites ─────────────────────────────────────────────────────
+#Companion SVG sprites
 
 GHOST_SVG = """<svg width="{s}" height="{s}" viewBox="0 0 16 16" style="image-rendering:pixelated;">
 <rect x="6" y="1" width="4" height="1" fill="#fff"/><rect x="4" y="2" width="8" height="1" fill="#fff"/>
@@ -94,7 +93,7 @@ def _companion(idx, size=48):
     return svg.format(s=size)
 
 
-# ── Data fetching ─────────────────────────────────────────────────────────────
+#Data fetching
 
 def _fetch(path, params=None):
     try:
@@ -191,7 +190,7 @@ def _co2_rows(df):
     return co2_df
 
 
-# ── UI components ─────────────────────────────────────────────────────────────
+#UI components
 
 def _ut_stat(label, value, detail="", color="#25a7c8", companion_idx=None):
     sprite = ""
@@ -332,7 +331,7 @@ def _companion_divider():
     st.markdown(html, unsafe_allow_html=True)
 
 
-# ── Main render ───────────────────────────────────────────────────────────────
+#Main render
 
 def render():
     with st.spinner("* Scanning all sensors..."):
@@ -340,7 +339,7 @@ def render():
         weather = _fetch_weather()
         forecast = _fetch_forecast()
 
-    # ── Hero banner ──
+    #Hero banner
     st.markdown(f"""
     <div style="background:#000;border:3px solid #fff;padding:18px 22px;margin-bottom:16px;position:relative;overflow:hidden;">
         <div style="position:absolute;top:8px;right:14px;opacity:0.12;display:flex;gap:10px;">
@@ -352,7 +351,7 @@ def render():
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Alerts ──
+    #Alerts
     if sensor:
         hum = _num(sensor.get("humidity_pct"))
         co2_src = sensor.get("co2_source")
@@ -363,7 +362,7 @@ def render():
         if co2_src == "sensor" and aqi_lbl == "Poor":
             _ut_dialogue("Mushroom", f"CO2 is at {int(aqi)} ppm. Please ventilate!", 5)
 
-    # ── Indoor section ──
+    #Indoor section
     _ut_section("INDOOR BASE")
 
     if sensor:
@@ -404,14 +403,14 @@ def render():
 
     _companion_divider()
 
-    # ── Outdoor section ──
+    #Outdoor section
     _ut_section("OUTDOOR SCAN")
 
     _ut_weather_card(weather)
 
     st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
 
-    # ── Forecast section ──
+    #Forecast section
     _ut_section("FORECAST RADAR")
 
     if forecast:
@@ -434,7 +433,7 @@ def render():
 
     _companion_divider()
 
-    # ── Activity charts ──
+    #Activity charts
     _ut_section("ACTIVITY CHARTS")
 
     sensor_history = _fetch("/api/sensors/history", params={"hours": 24})
@@ -476,8 +475,13 @@ def render():
                         mode="lines", fill="tozeroy",
                         line=dict(color="#24c08b", width=2),
                     ))
-                    fig.add_hline(y=40, line_dash="dash", line_color="#e25555",
-                                 annotation_text="Alert 40%", annotation_font_color="#e25555")
+                    fig.add_hline(
+                        y=HUMIDITY_ALERT,
+                        line_dash="dash",
+                        line_color="#e25555",
+                        annotation_text=f"Alert {HUMIDITY_ALERT}%",
+                        annotation_font_color="#e25555",
+                    )
                 fig.update_layout(
                     title=dict(text="HUMIDITY 24H", font=dict(family="Press Start 2P", size=8, color="#888")),
                     template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
