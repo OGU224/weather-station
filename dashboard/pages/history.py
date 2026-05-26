@@ -25,46 +25,7 @@ TIME_OPTIONS = {
     "Last 7 days": 168,
 }
 
-# ── Companion SVGs (lightweight, no position:absolute tricks) ─────────────────
-
-GHOST_SVG = """<svg width="{s}" height="{s}" viewBox="0 0 16 16" style="image-rendering:pixelated;">
-<rect x="6" y="1" width="4" height="1" fill="#fff"/><rect x="4" y="2" width="8" height="1" fill="#fff"/>
-<rect x="3" y="3" width="10" height="1" fill="#fff"/><rect x="2" y="4" width="12" height="2" fill="#fff"/>
-<rect x="2" y="6" width="2" height="1" fill="#fff"/><rect x="4" y="6" width="1" height="1" fill="#111"/><rect x="5" y="6" width="5" height="1" fill="#fff"/><rect x="10" y="6" width="1" height="1" fill="#111"/><rect x="11" y="6" width="3" height="1" fill="#fff"/>
-<rect x="2" y="7" width="2" height="1" fill="#fff"/><rect x="4" y="7" width="2" height="1" fill="#111"/><rect x="6" y="7" width="4" height="1" fill="#fff"/><rect x="10" y="7" width="2" height="1" fill="#111"/><rect x="12" y="7" width="2" height="1" fill="#fff"/>
-<rect x="2" y="8" width="12" height="1" fill="#fff"/><rect x="2" y="9" width="5" height="1" fill="#fff"/><rect x="7" y="9" width="2" height="1" fill="#111"/><rect x="9" y="9" width="5" height="1" fill="#fff"/>
-<rect x="2" y="10" width="12" height="2" fill="#fff"/>
-<rect x="2" y="12" width="3" height="1" fill="#fff"/><rect x="6" y="12" width="4" height="1" fill="#fff"/><rect x="11" y="12" width="3" height="1" fill="#fff"/>
-</svg>"""
-
-ROBOT_SVG = """<svg width="{s}" height="{s}" viewBox="0 0 16 16" style="image-rendering:pixelated;">
-<rect x="7" y="0" width="2" height="1" fill="#ff0"/><rect x="7" y="1" width="2" height="1" fill="#999"/>
-<rect x="3" y="2" width="10" height="1" fill="#999"/><rect x="3" y="3" width="10" height="6" fill="#222"/>
-<rect x="3" y="3" width="1" height="6" fill="#999"/><rect x="12" y="3" width="1" height="6" fill="#999"/>
-<rect x="5" y="5" width="2" height="2" fill="#0c0"/><rect x="9" y="5" width="2" height="2" fill="#0c0"/>
-<rect x="5" y="8" width="6" height="1" fill="#0c0"/><rect x="3" y="9" width="10" height="1" fill="#999"/>
-<rect x="4" y="10" width="8" height="3" fill="#999"/><rect x="7" y="11" width="2" height="1" fill="#f22"/>
-<rect x="4" y="13" width="2" height="2" fill="#999"/><rect x="9" y="13" width="2" height="2" fill="#999"/>
-</svg>"""
-
-CAT_SVG = """<svg width="{s}" height="{s}" viewBox="0 0 16 16" style="image-rendering:pixelated;">
-<rect x="2" y="0" width="2" height="1" fill="#fff"/><rect x="12" y="0" width="2" height="1" fill="#fff"/>
-<rect x="2" y="1" width="3" height="1" fill="#fff"/><rect x="11" y="1" width="3" height="1" fill="#fff"/>
-<rect x="3" y="2" width="10" height="3" fill="#fff"/>
-<rect x="3" y="5" width="1" height="1" fill="#fff"/><rect x="4" y="5" width="2" height="1" fill="#111"/><rect x="6" y="5" width="4" height="1" fill="#fff"/><rect x="10" y="5" width="2" height="1" fill="#111"/><rect x="12" y="5" width="1" height="1" fill="#fff"/>
-<rect x="1" y="7" width="2" height="1" fill="#999"/><rect x="3" y="6" width="10" height="2" fill="#fff"/><rect x="13" y="7" width="2" height="1" fill="#999"/>
-<rect x="3" y="8" width="10" height="4" fill="#fff"/>
-<rect x="3" y="12" width="2" height="2" fill="#fff"/><rect x="9" y="12" width="2" height="2" fill="#fff"/>
-</svg>"""
-
-ALL_COMPANIONS = [("Ghost", GHOST_SVG), ("Robot", ROBOT_SVG), ("Cat", CAT_SVG)]
-
-def _companion(idx, size=48):
-    _, svg = ALL_COMPANIONS[idx % len(ALL_COMPANIONS)]
-    return svg.format(s=size)
-
-
-# ── Data fetching (identical logic) ───────────────────────────────────────────
+from pages.current import _companion, ALL_COMPANIONS
 
 def _fetch(path, params=None):
     try:
@@ -74,7 +35,6 @@ def _fetch(path, params=None):
     except requests.RequestException:
         pass
     return None
-
 
 def _rows_to_sensor(rows):
     return [{
@@ -88,9 +48,7 @@ def _rows_to_sensor(rows):
         "motion_detected": r.get("motion_detected"),
     } for r in rows]
 
-
 def _fetch_sensor_history(device_id, hours):
-    device_id = (device_id or "").strip() or None
     params = {"hours": hours}
     if device_id:
         params["device_id"] = device_id
@@ -103,7 +61,6 @@ def _fetch_sensor_history(device_id, hours):
         return _rows_to_sensor(rows), "stored"
     except Exception:
         return [], "unavailable"
-
 
 def _rows_to_weather(rows):
     return [{
@@ -118,7 +75,6 @@ def _rows_to_weather(rows):
         "city": r.get("city"),
     } for r in rows]
 
-
 def _fetch_weather_history(hours):
     data = _fetch("/api/weather/history", params={"hours": hours})
     if data:
@@ -129,7 +85,6 @@ def _fetch_weather_history(hours):
         return _rows_to_weather(rows), "stored"
     except Exception:
         return [], "unavailable"
-
 
 def _store_weather_snapshot():
     try:
@@ -150,7 +105,6 @@ def _store_weather_snapshot():
     except Exception:
         return False, "Could not save snapshot."
 
-
 def _to_df(data, time_col="timestamp"):
     if not data:
         return pd.DataFrame()
@@ -164,14 +118,10 @@ def _to_df(data, time_col="timestamp"):
         df = df.dropna(subset=[time_col]).sort_values(time_col)
     return df
 
-
 def _fmt(v, d=1):
     if pd.isna(v):
         return "--"
     return f"{v:.{d}f}"
-
-
-# ── Comfort score (identical logic) ──────────────────────────────────────────
 
 def _comfort_score(df):
     if df.empty:
@@ -211,9 +161,6 @@ def _comfort_score(df):
         label += " Signal: " + ", ".join(notes[:2]) + "."
     return score, label, notes
 
-
-# ── Undertale chart styling ──────────────────────────────────────────────────
-
 def _ut_chart_layout(fig, title, height=260, y_title=""):
     fig.update_layout(
         title=dict(text=title, font=dict(family="Press Start 2P", size=9, color="#888")),
@@ -228,7 +175,6 @@ def _ut_chart_layout(fig, title, height=260, y_title=""):
     )
     return fig
 
-
 def _ut_temp_chart(df, title="TEMPERATURE"):
     fig = go.Figure()
     if df.empty or "temperature_c" not in df.columns:
@@ -240,7 +186,6 @@ def _ut_temp_chart(df, title="TEMPERATURE"):
             line=dict(color="#25a7c8", width=2), marker=dict(size=3),
         ))
     return _ut_chart_layout(fig, title, y_title="C")
-
 
 def _ut_hum_chart(df, title="HUMIDITY"):
     fig = go.Figure()
@@ -256,7 +201,6 @@ def _ut_hum_chart(df, title="HUMIDITY"):
                       annotation_text="Alert 40%", annotation_font_color="#e25555")
     return _ut_chart_layout(fig, title, y_title="%")
 
-
 def _ut_co2_chart(df, title="CO2"):
     fig = go.Figure()
     co2_df = df
@@ -270,7 +214,6 @@ def _ut_co2_chart(df, title="CO2"):
         ).tolist()
         fig.add_trace(go.Bar(x=co2_df["timestamp"], y=co2_df["air_quality_index"], marker_color=colors))
     return _ut_chart_layout(fig, title, y_title="ppm")
-
 
 def _ut_motion_chart(df, title="MOTION EVENTS"):
     fig = go.Figure()
@@ -286,9 +229,6 @@ def _ut_motion_chart(df, title="MOTION EVENTS"):
             fig.add_trace(go.Bar(x=counts["hour"], y=counts["events"], marker_color="#d6a529"))
     return _ut_chart_layout(fig, title, y_title="events")
 
-
-# ── UI components ─────────────────────────────────────────────────────────────
-
 def _ut_section(title):
     st.markdown(f"""
     <div style="display:flex;align-items:center;gap:10px;margin:22px 0 12px 0;">
@@ -297,7 +237,6 @@ def _ut_section(title):
     </div>
     """, unsafe_allow_html=True)
 
-
 def _ut_stat(label, value, color="#25a7c8"):
     st.markdown(f"""
     <div style="background:#0a0a0a;border:3px solid #2e3b47;padding:14px 16px;margin-bottom:8px;text-align:center;">
@@ -305,7 +244,6 @@ def _ut_stat(label, value, color="#25a7c8"):
         <div style="color:{color};font-size:1.5rem;font-weight:700;">{escape(str(value))}</div>
     </div>
     """, unsafe_allow_html=True)
-
 
 def _ut_hp(label, value, max_val=100, color="#24c08b"):
     pct = max(0, min(100, int(value / max_val * 100))) if max_val > 0 else 0
@@ -321,7 +259,6 @@ def _ut_hp(label, value, max_val=100, color="#24c08b"):
     </div>
     """, unsafe_allow_html=True)
 
-
 def _ut_dialogue(speaker, text, companion_idx=0):
     st.markdown(f"""
     <div style="display:flex;align-items:flex-start;gap:16px;background:#000;border:3px solid #fff;padding:16px 18px;margin-bottom:14px;">
@@ -333,7 +270,6 @@ def _ut_dialogue(speaker, text, companion_idx=0):
     </div>
     """, unsafe_allow_html=True)
 
-
 def _companion_divider():
     html = '<div style="display:flex;justify-content:center;gap:20px;padding:6px 0;margin:10px 0;opacity:0.35;">'
     for i in range(3):
@@ -341,11 +277,7 @@ def _companion_divider():
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
 
-
-# ── Main render ───────────────────────────────────────────────────────────────
-
 def render():
-    # ── Hero banner ──
     st.markdown(f"""
     <div style="background:#000;border:3px solid #fff;padding:18px 22px;margin-bottom:16px;position:relative;">
         <div style="color:#ff0;font-family:'Press Start 2P',monospace;font-size:0.5rem;margin-bottom:8px;">DATA ARCHIVE</div>
@@ -354,12 +286,9 @@ def render():
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Controls ──
-    c1, c2 = st.columns([2, 2])
-    with c1:
-        selected_range = st.selectbox("Replay window", list(TIME_OPTIONS.keys()), index=2)
-    with c2:
-        device_id = st.text_input("Room filter", value="", placeholder="Whole home")
+    # Zone de contrôle unifiée (Filtre par pièce nettoyé)
+    selected_range = st.selectbox("Replay window", list(TIME_OPTIONS.keys()), index=2)
+    device_id = "" # Fixé par défaut pour tout l'historique
 
     hours = TIME_OPTIONS[selected_range]
 
@@ -374,11 +303,7 @@ def render():
         _ut_dialogue("Robot", "No history found yet. Let the station collect a few readings first.", 1)
         return
 
-    # ── Indoor recap ──
     _ut_section("INDOOR RECAP")
-
-    scope = "whole home" if not (device_id or "").strip() else device_id.strip()
-    st.caption(f"Scope: {scope}")
 
     if not sensor_df.empty:
         score, recommendation, notes = _comfort_score(sensor_df)
@@ -388,11 +313,9 @@ def render():
         low_hum_count = int((sensor_df["humidity_pct"] < 40).sum()) if "humidity_pct" in sensor_df.columns else 0
         motion_count = int((sensor_df["motion_detected"] == True).sum()) if "motion_detected" in sensor_df.columns else 0
 
-        # Comfort HP bar
         score_color = "#24c08b" if score >= 80 else ("#d6a529" if score >= 60 else "#e25555")
         _ut_hp("COMFORT", score, 100, score_color)
 
-        # Stats row
         s1, s2, s3, s4 = st.columns(4)
         with s1:
             _ut_stat("Avg Temp", f"{_fmt(temp_avg)}C", "#25a7c8")
@@ -403,7 +326,6 @@ def render():
         with s4:
             _ut_stat("Readings", str(len(sensor_df)), "#888")
 
-        # Alerts
         if low_hum_count:
             _ut_dialogue("Robot", f"Humidity was below 40% for {low_hum_count} reading(s) in this period.", 1)
 
@@ -412,7 +334,6 @@ def render():
             lowest_time = lowest["timestamp"].strftime("%Y-%m-%d %H:%M")
             st.caption(f"Lowest humidity: {_fmt(lowest['humidity_pct'])}% at {lowest_time}.")
 
-        # Recommendation
         st.markdown(f"""
         <div style="background:#0a0a0a;border:3px solid #2e3b47;border-left:4px solid {score_color};padding:12px 16px;margin:8px 0 16px 0;">
             <div style="color:#aaa;font-size:0.82rem;line-height:1.45;">* {escape(recommendation)}</div>
@@ -421,7 +342,6 @@ def render():
 
         _companion_divider()
 
-        # ── Indoor charts ──
         _ut_section("INDOOR TRACES")
 
         tab_temp, tab_hum, tab_co2 = st.tabs(["Temp", "Humidity", "CO2"])
@@ -430,29 +350,17 @@ def render():
         with tab_hum:
             st.plotly_chart(_ut_hum_chart(sensor_df, "INDOOR HUMIDITY"), use_container_width=True)
         with tab_co2:
-            st.caption("CO2 trace shows readings from air-quality sensor runs.")
             st.plotly_chart(_ut_co2_chart(sensor_df, "CO2 FROM SENSOR"), use_container_width=True)
 
-        # Motion chart
         st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
         st.plotly_chart(_ut_motion_chart(sensor_df, "MOTION BY HOUR"), use_container_width=True)
-
-        if "motion_detected" in sensor_df.columns:
-            mcount = int((sensor_df["motion_detected"] == True).sum())
-            if mcount:
-                st.caption(f"Motion detected {mcount} time(s) in this period.")
-            else:
-                st.caption("No motion detected in this period.")
     else:
         _ut_dialogue("Ghost", "No indoor sensor data available for this period.", 0)
 
     _companion_divider()
-
-    # ── Outdoor section ──
     _ut_section("OUTDOOR TIMELINE")
 
     with st.expander("Weather capture"):
-        st.caption("Save the current outdoor weather into the archive.")
         if st.button("Save outdoor now", use_container_width=True):
             ok, msg = _store_weather_snapshot()
             if ok:
@@ -468,8 +376,7 @@ def render():
         with tab_out_h:
             st.plotly_chart(_ut_hum_chart(weather_df, "OUTDOOR HUMIDITY"), use_container_width=True)
     else:
-        _ut_dialogue("Cat", "No outdoor weather history yet. Use Save outdoor now to start archiving.", 2)
+        _ut_dialogue("Cat", "No outdoor weather history yet.", 2)
 
     _companion_divider()
-
     st.caption(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")

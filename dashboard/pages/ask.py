@@ -2,12 +2,10 @@
 import requests
 import streamlit as st
 from html import escape
-
-# Récupération exacte des composants graphiques et de la liste globale des compagnons
 from pages.current import _companion, ALL_COMPANIONS
 
 MIDDLEWARE_URL = os.getenv("MIDDLEWARE_URL", "https://weather-middleware-387666611940.europe-west1.run.app")
-# Liste des actions / questions typées RPG
+
 SUGGESTED_QUESTIONS = [
     "Summarize the latest indoor conditions.",
     "What was the average temperature over the last 24h?",
@@ -46,7 +44,6 @@ def _stt(audio_file, language_code: str):
     return response.json()
 
 def render():
-    # --- 1. HERO HEADER (Reprend à l'identique le style de tes autres pages) ---
     st.markdown("""
     <div class="pixel-shell">
         <div class="hero-band">
@@ -65,56 +62,44 @@ def render():
 
     st.markdown('<div style="height:25px;"></div>', unsafe_allow_html=True)
 
-    # --- 2. CONFIGURATION PANEL (Même structure à deux colonnes avec l'avatar) ---
+    # Valeurs par défaut fixées en tâche de fond (Pas d'affichage de configuration métallique)
+    device_id = None
+    hours = 24
+
     col_left, col_right = st.columns([2, 1])
 
     with col_left:
-        st.markdown('<div class="pixel-title">⚙️ METADATA CONFIG</div>', unsafe_allow_html=True)
-        
-        # Boîte de configuration intégrée
-        c1, c2 = st.columns(2)
-        with c1:
-            device_id = st.text_input("Device Filter", placeholder="All sensors...", label_visibility="collapsed")
-        with c2:
-            hours = st.selectbox("Time Window", [1, 6, 12, 24, 48, 168], index=3, label_visibility="collapsed")
-        
-        st.markdown('<div style="height:15px;"></div>', unsafe_allow_html=True)
-        
-        # Dialogue Box Undertale pour guider l'utilisateur
+        # Dialogue Box Undertale permanente guidant l'utilisateur
         st.markdown(f"""
-        <div style="background:#000; border:3px solid #fff; padding:15px; display:flex; gap:15px; align-items:center;">
+        <div style="background:#000; border:3px solid #fff; padding:15px; display:flex; gap:15px; align-items:center; height:100px;">
             <div style="flex-shrink:0;">{_companion(0, 48)}</div>
             <div style="color:#fff; font-family:'Courier New', monospace; font-size:0.9rem;">
-                * System is ready.<br>
-                * Select an action from the combat menu below or type a custom query.
+                * System is online.<br>
+                * Select an action from the combat menu or write down a custom query.
             </div>
         </div>
         """, unsafe_allow_html=True)
 
     with col_right:
-        # Cadre d'affichage du compagnon de garde (comme sur ta page principale)
         st.markdown(f"""
-        <div style="background:#050505; border:3px solid #2e3b47; text-align:center; padding:20px; border-radius:4px; height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center;">
-            {_companion(4, 80)}
-            <div style="color:#888; font-family:monospace; font-size:0.7rem; margin-top:10px; letter-spacing:2px;">ASSISTANT_ACTIVE</div>
+        <div style="background:#050505; border:3px solid #2e3b47; text-align:center; padding:10px; border-radius:4px; height:100px; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+            {_companion(4, 52)}
+            <div style="color:#888; font-family:monospace; font-size:0.6rem; margin-top:4px; letter-spacing:2px;">ASSISTANT_ACTIVE</div>
         </div>
         """, unsafe_allow_html=True)
 
     st.markdown('<div style="height:30px;"></div>', unsafe_allow_html=True)
 
-    # --- 3. COMBAT MENU PRESETS (Boutons style choix d'actions RPG) ---
     st.markdown('<div class="pixel-title">⚔️ ACTIONS MENU</div>', unsafe_allow_html=True)
     
     cols = st.columns(3)
     for i, suggested in enumerate(SUGGESTED_QUESTIONS):
         with cols[i % 3]:
-            # Utilisation du cœur rouge Undertale emblématique pour chaque action
             if st.button(f"❤️ {suggested}", use_container_width=True, key=f"preset_{i}"):
                 st.session_state["ask_question"] = suggested
 
     st.markdown('<div style="height:25px;"></div>', unsafe_allow_html=True)
 
-    # --- 4. TERMINAL INPUT BUFFER ---
     st.markdown('<div class="pixel-title">⌨️ INPUT BUFFER</div>', unsafe_allow_html=True)
     
     question = st.text_area(
@@ -125,7 +110,6 @@ def render():
         label_visibility="collapsed"
     )
 
-    # Ligne d'actions d'exécution
     b1, b2, b3 = st.columns([2, 2, 1])
     with b1:
         ask_clicked = st.button("🌟 EXECUTE COMMAND", type="primary", use_container_width=True)
@@ -139,12 +123,11 @@ def render():
                         res = _stt(audio, lang)
                         st.session_state["ask_question"] = res.get("transcript", "")
                         st.rerun()
-    with c_reset if 'c_reset' in locals() else b3:
+    with b3:
         if st.button("RESET", use_container_width=True):
             st.session_state.pop("last_answer_result", None)
             st.rerun()
 
-    # --- 5. THE MAIN DIALOGUE BOX (Rendu de la réponse de l'IA) ---
     if ask_clicked and question:
         with st.spinner("PARSING SENSOR DATA..."):
             try:
@@ -160,7 +143,6 @@ def render():
         
         answer = result.get("answer", "...")
         
-        # Boîte de dialogue officielle style RPG (Cadre blanc épais, fond noir, texte blanc)
         st.markdown(f"""
         <div style="background:#000; border:4px solid #fff; padding:25px; display:flex; gap:20px; align-items:flex-start; margin-bottom:15px;">
             <div style="flex-shrink:0; padding-top:5px;">{_companion(1, 64)}</div>
@@ -173,7 +155,6 @@ def render():
         </div>
         """, unsafe_allow_html=True)
 
-        # Section Audio et Méta-données du bas
         audio_col, padding_col = st.columns([1.5, 3.5])
         with audio_col:
             if st.button("🔊 READ TEXT ALOUD", use_container_width=True):
