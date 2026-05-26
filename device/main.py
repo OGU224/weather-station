@@ -1,4 +1,4 @@
-﻿"""M5Stack Core2 weather station firmware for UIFlow 2.
+"""M5Stack Core2 weather station firmware for UIFlow 2.
 
 Final UIFlow 2 firmware. Copy it into UIFlow 2 as main.py. Keep real WiFi/API
 values and local sensor mode in /flash/device_config.py on the Core2.
@@ -186,7 +186,7 @@ PAGE_DATA = 0
 PAGE_FORECAST = 1
 PAGE_ASSISTANT = 2
 PAGE_TREND = 3
-MAIN_PAGE_COUNT = 4
+MAIN_PAGE_COUNT = 5 if UNDERTALE_UI else 4
 
 QUESTIONS = [
     (
