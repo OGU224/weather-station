@@ -4,6 +4,7 @@ from dataclasses import asdict
 from flask import Blueprint, jsonify, request
 
 from data.bigquery_client import BigQueryClient
+from services.device_location_service import get_device_location, get_last_device_location_error
 from services.geolocation_service import get_ip_location, get_last_ip_location_error
 from services.weather_service import WeatherService
 
@@ -22,6 +23,7 @@ def _client_ip():
 
 
 def _weather_location_args():
+    device_id = request.args.get("device_id") or None
     city = request.args.get("city") or None
     country_code = request.args.get("country_code") or request.args.get("country") or None
     lat = request.args.get("lat") or None
@@ -43,6 +45,13 @@ def _weather_location_args():
     if city:
         source = "query"
 
+    if city is None and lat is None and lon is None and device_id:
+        location = get_device_location(device_id)
+        if location:
+            lat = location.get("lat")
+            lon = location.get("lon")
+            source = "device_wifi"
+
     if city is None and lat is None and lon is None:
         location = get_ip_location(ip_address=_client_ip())
         if location:
@@ -56,6 +65,7 @@ def _weather_location_args():
             "country_code": country_code,
             "lat": lat,
             "lon": lon,
+            "device_id": device_id,
         },
         source,
     )
@@ -64,7 +74,9 @@ def _weather_location_args():
 @weather_bp.route("/current", methods=["GET"])
 def get_current_weather():
     location_args, location_source = _weather_location_args()
-    weather = weather_service.get_current_weather(**location_args)
+    weather_args = dict(location_args)
+    weather_args.pop("device_id", None)
+    weather = weather_service.get_current_weather(**weather_args)
     if not weather:
         return jsonify({"error": "Meteo indisponible"}), 503
 
@@ -76,6 +88,8 @@ def get_current_weather():
     payload["location_source"] = location_source
     if location_source == "default":
         payload["location_error"] = get_last_ip_location_error()
+    if location_source == "device_wifi":
+        payload["location_note"] = "Location estimated from Core2 WiFi scan"
     if location_args.get("lat") is not None and location_args.get("lon") is not None:
         payload["location_lat"] = location_args["lat"]
         payload["location_lon"] = location_args["lon"]
@@ -91,7 +105,9 @@ def get_weather_forecast():
         days = 5
 
     location_args, _ = _weather_location_args()
-    forecasts = weather_service.get_forecast(days=days, **location_args)
+    weather_args = dict(location_args)
+    weather_args.pop("device_id", None)
+    forecasts = weather_service.get_forecast(days=days, **weather_args)
     if not forecasts:
         return jsonify({"error": "Forecast indisponible"}), 503
 

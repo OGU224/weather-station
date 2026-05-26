@@ -138,6 +138,7 @@ except Exception:
 
 SEND_SECONDS = 60
 WEATHER_SECONDS = 300
+LOCATION_SECONDS = 1800
 RENDER_SECONDS = 15
 RECORD_SECONDS = 4
 STT_LANGUAGE = "en-US"
@@ -170,12 +171,13 @@ LATEST_SENSOR_URL = LATEST_SENSOR_URL + DEVICE_ID
 SENSOR_HISTORY_URL = API_BASE + "/api/sensors/history?device_id="
 SENSOR_HISTORY_URL = SENSOR_HISTORY_URL + DEVICE_ID
 SENSOR_HISTORY_URL = SENSOR_HISTORY_URL + "&hours=24"
-WEATHER_URL = API_BASE + "/api/weather/current"
-FORECAST_URL = API_BASE + "/api/weather/forecast?days=3"
+WEATHER_URL = API_BASE + "/api/weather/current?device_id=" + DEVICE_ID
+FORECAST_URL = API_BASE + "/api/weather/forecast?days=3&device_id=" + DEVICE_ID
 ASK_URL = API_BASE + "/api/voice/ask"
 DEVICE_ASK_URL = API_BASE + "/api/voice/device-audio-question"
 DEVICE_TTS_URL = API_BASE + "/api/voice/device-tts"
 MUSIC_MOOD_URL = API_BASE + "/api/music/play-mood"
+LOCATION_WIFI_URL = API_BASE + "/api/location/wifi"
 
 
 # ---------------------------------------------------------------------------
@@ -957,7 +959,7 @@ if UNDERTALE_UI:
         global WIFI_SSID, WIFI_PASSWORD, API_BASE_URL, API_BASE
         global SENSOR_URL, WEATHER_URL, FORECAST_URL, ASK_URL, DEVICE_ASK_URL
         global DEVICE_TTS_URL, MUSIC_MOOD_URL, ACTIVE_PROFILE, ACTIVE_WIFI
-        global LATEST_SENSOR_URL, SENSOR_HISTORY_URL
+        global LATEST_SENSOR_URL, SENSOR_HISTORY_URL, LOCATION_WIFI_URL
 
         key = wifi_profile_keys[index]
         ACTIVE_PROFILE = key
@@ -969,12 +971,13 @@ if UNDERTALE_UI:
         SENSOR_URL = API_BASE + "/api/sensors/reading"
         LATEST_SENSOR_URL = API_BASE + "/api/sensors/latest?device_id=" + DEVICE_ID
         SENSOR_HISTORY_URL = API_BASE + "/api/sensors/history?device_id=" + DEVICE_ID + "&hours=24"
-        WEATHER_URL = API_BASE + "/api/weather/current"
-        FORECAST_URL = API_BASE + "/api/weather/forecast?days=3"
+        WEATHER_URL = API_BASE + "/api/weather/current?device_id=" + DEVICE_ID
+        FORECAST_URL = API_BASE + "/api/weather/forecast?days=3&device_id=" + DEVICE_ID
         ASK_URL = API_BASE + "/api/voice/ask"
         DEVICE_ASK_URL = API_BASE + "/api/voice/device-audio-question"
         DEVICE_TTS_URL = API_BASE + "/api/voice/device-tts"
         MUSIC_MOOD_URL = API_BASE + "/api/music/play-mood"
+        LOCATION_WIFI_URL = API_BASE + "/api/location/wifi"
 
     def choose_wifi_on_boot():
         global wifi_profile_index, wifi_status
@@ -1081,6 +1084,79 @@ def connect_wifi():
         set_label(line4, trim(last_error, 28), RED)
     time.sleep(2)
     return False
+
+
+def _bssid_to_mac(bssid):
+    try:
+        values = []
+        for byte in bssid:
+            if isinstance(byte, str):
+                byte = ord(byte)
+            values.append("%02x" % int(byte))
+        if len(values) == 6:
+            return ":".join(values)
+    except Exception:
+        pass
+    return ""
+
+
+def submit_wifi_location():
+    global last_error
+    if network is None:
+        return False
+
+    try:
+        wlan = network.WLAN(network.STA_IF)
+        if not wlan.active():
+            wlan.active(True)
+        scan_rows = wlan.scan()
+    except Exception as exc:
+        last_error = "WiFi scan " + str(exc)[:12]
+        return False
+
+    access_points = []
+    for row in scan_rows:
+        try:
+            bssid = row[1]
+            channel = row[2]
+            rssi = row[3]
+            mac = _bssid_to_mac(bssid)
+            if mac:
+                access_points.append({
+                    "macAddress": mac,
+                    "signalStrength": int(rssi),
+                    "channel": int(channel),
+                })
+        except Exception:
+            pass
+        if len(access_points) >= 12:
+            break
+
+    if len(access_points) < 2:
+        last_error = "Location needs WiFi"
+        return False
+
+    try:
+        response = requests.post(
+            LOCATION_WIFI_URL,
+            json={
+                "device_id": DEVICE_ID,
+                "wifiAccessPoints": access_points,
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=8,
+        )
+        ok = response.status_code >= 200 and response.status_code < 300
+        if not ok:
+            last_error = "Location HTTP " + str(response.status_code)
+        try:
+            response.close()
+        except Exception:
+            pass
+        return ok
+    except Exception as exc:
+        last_error = "Location " + str(exc)[:15]
+        return False
 
 
 def init_sensors():
@@ -1687,6 +1763,7 @@ def run_morning_routine():
 if UNDERTALE_UI:
     choose_wifi_on_boot()
 connect_wifi()
+submit_wifi_location()
 fetch_latest_sensor_reading()
 init_sensors()
 read_sensors()
@@ -1698,6 +1775,7 @@ render(True)
 
 last_send_ms = now_ms()
 last_weather_ms = now_ms()
+last_location_ms = now_ms()
 last_render_ms = now_ms()
 last_button_ms = now_ms()
 last_morning_ms = -MORNING_COOLDOWN_SECONDS * 1000
@@ -1771,6 +1849,7 @@ while True:
             elif UNDERTALE_UI and page == PAGE_WIFI:
                 apply_wifi_profile(wifi_profile_index)
                 connect_wifi()
+                submit_wifi_location()
                 fetch_weather()
                 fetch_forecast()
                 render(True)
@@ -1801,6 +1880,10 @@ while True:
         last_weather_ms = now_ms()
         if page == PAGE_DATA or page == PAGE_FORECAST or page == PAGE_TREND:
             render(False)
+
+    if elapsed_ms(last_location_ms) >= LOCATION_SECONDS * 1000:
+        submit_wifi_location()
+        last_location_ms = now_ms()
 
     if elapsed_ms(last_render_ms) >= RENDER_SECONDS * 1000:
         last_render_ms = now_ms()

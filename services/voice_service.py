@@ -12,6 +12,7 @@ import tempfile
 from dotenv import load_dotenv
 
 from data.bigquery_client import BigQueryClient
+from services.device_location_service import get_device_location
 from services.geolocation_service import get_ip_location
 from services.weather_service import WeatherService
 
@@ -448,7 +449,7 @@ def _clean_city_candidate(value):
     return city
 
 
-def _weather_location_from_question(question):
+def _weather_location_from_question(question, device_id=None):
     """Return OpenWeather location kwargs requested in a natural-language question."""
     q = normalize_question(question)
     if not q:
@@ -477,6 +478,10 @@ def _weather_location_from_question(question):
         city = _clean_city_candidate(city)
         if city:
             return {"city": city, "country_code": None}
+
+    location = get_device_location(device_id)
+    if location:
+        return {"lat": location.get("lat"), "lon": location.get("lon")}
 
     location = get_ip_location()
     if location:
@@ -538,7 +543,7 @@ def build_context(device_id=None, hours=24, question=None):
     """Return recent sensor/weather data and summary statistics for the assistant."""
     bq = BigQueryClient()
     weather_service = WeatherService()
-    weather_location = _weather_location_from_question(question)
+    weather_location = _weather_location_from_question(question, device_id=device_id)
     latest = _sensor_row(bq.get_latest_sensor_reading(device_id=device_id))
     history = [_sensor_row(row) for row in bq.get_sensor_history(device_id=device_id, hours=hours)]
     history = [row for row in history if row]

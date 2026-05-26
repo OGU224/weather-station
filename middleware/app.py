@@ -13,6 +13,7 @@ from middleware.routes.sensor_routes import sensor_bp
 from middleware.routes.weather_routes import weather_bp
 from middleware.routes.voice_routes import voice_bp
 from middleware.routes.music_routes import music_bp
+from middleware.routes.location_routes import location_bp
 
 def create_app():
     load_dotenv()
@@ -24,6 +25,7 @@ def create_app():
     app.register_blueprint(weather_bp, url_prefix='/api/weather')
     app.register_blueprint(voice_bp, url_prefix='/api/voice')
     app.register_blueprint(music_bp, url_prefix='/api/music')
+    app.register_blueprint(location_bp, url_prefix='/api/location')
     
     @app.route('/api/health', methods=['GET'])
     def health_check():

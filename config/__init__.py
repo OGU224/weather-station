@@ -29,6 +29,8 @@ OWM_BASE_URL = "https://api.openweathermap.org/data/2.5"
 IP_GEOLOCATION_ENABLED = _get("IP_GEOLOCATION_ENABLED", "true").lower() == "true"
 IP_GEOLOCATION_URL = _get("IP_GEOLOCATION_URL", "https://ipapi.co/json/")
 IP_GEOLOCATION_CACHE_SECONDS = _get_int("IP_GEOLOCATION_CACHE_SECONDS", 1800)
+GOOGLE_GEOLOCATION_ENABLED = _get("GOOGLE_GEOLOCATION_ENABLED", "false").lower() == "true"
+GOOGLE_GEOLOCATION_API_KEY = _get("GOOGLE_GEOLOCATION_API_KEY")
 
 # --- Google Cloud ---
 GCP_PROJECT = _get("GOOGLE_CLOUD_PROJECT")

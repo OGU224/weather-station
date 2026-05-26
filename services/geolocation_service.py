@@ -25,7 +25,9 @@ _last_error = None
 
 def _provider_urls(ip_address=None):
     ip_suffix = "/" + ip_address if ip_address else "/"
-    urls = [IP_GEOLOCATION_URL]
+    urls = []
+    if not ip_address:
+        urls.append(IP_GEOLOCATION_URL)
     if ip_address:
         urls.append("https://ipapi.co/" + ip_address + "/json/")
     urls.extend([
