@@ -12,6 +12,7 @@ import tempfile
 from dotenv import load_dotenv
 
 from data.bigquery_client import BigQueryClient
+from services.geolocation_service import get_ip_location
 from services.weather_service import WeatherService
 
 load_dotenv(override=True)
@@ -32,7 +33,7 @@ DEFAULT_STT_PHRASES = [
             "temperature,humidity,humid,CO2,carbon dioxide,air quality,forecast,"
             "weather,outside,indoor,outdoor,motion,presence,detected,ventilate,"
             "window,umbrella,rain,raining,yesterday,two days ago,last 24 hours,"
-            "exceeded,above,below,average,Lausanne,meteo,humidite,temperature,"
+            "exceeded,above,below,average,Lausanne,Geneva,Geneve,meteo,humidite,temperature,"
             "qualite de l air,parapluie,pluie,fenetre"
         ),
     ).split(",")
@@ -401,6 +402,89 @@ def _sensor_row(row):
     }
 
 
+CITY_ALIASES = {
+    "geneva": ("Geneva", "CH"),
+    "geneve": ("Geneva", "CH"),
+    "genève": ("Geneva", "CH"),
+    "lausanne": ("Lausanne", "CH"),
+    "chavannes": ("Chavannes-pres-Renens", "CH"),
+    "chavannes pres renens": ("Chavannes-pres-Renens", "CH"),
+    "renens": ("Renens", "CH"),
+    "zurich": ("Zurich", "CH"),
+    "zürich": ("Zurich", "CH"),
+    "bern": ("Bern", "CH"),
+    "berne": ("Bern", "CH"),
+    "montreux": ("Montreux", "CH"),
+    "paris": ("Paris", "FR"),
+    "lyon": ("Lyon", "FR"),
+    "london": ("London", "GB"),
+    "milan": ("Milan", "IT"),
+}
+
+
+LOCATION_STOP_WORDS = {
+    "home", "house", "room", "inside", "indoor", "outside", "outdoor", "weather",
+    "forecast", "temperature", "humidity", "co2", "today", "tomorrow", "yesterday", "week",
+    "now", "please", "me", "the", "my", "station", "dashboard",
+}
+
+
+def _clean_city_candidate(value):
+    city = str(value or "")
+    city = re.split(
+        r"\b(?:today|tomorrow|yesterday|this|next|now|please|outside|outdoor|weather|forecast|week|weekend|rain|raining)\b",
+        city,
+        flags=re.IGNORECASE,
+    )[0]
+    city = " ".join(city.replace("?", " ").replace(".", " ").replace(",", " ").split())
+    city = city.strip(" -")
+    if not city:
+        return None
+    normalized = normalize_question(city)
+    if not normalized or normalized in LOCATION_STOP_WORDS:
+        return None
+    if all(part in LOCATION_STOP_WORDS for part in normalized.split()):
+        return None
+    return city
+
+
+def _weather_location_from_question(question):
+    """Return OpenWeather location kwargs requested in a natural-language question."""
+    q = normalize_question(question)
+    if not q:
+        return {}
+
+    for alias, (city, country_code) in CITY_ALIASES.items():
+        if normalize_question(alias) in q:
+            return {"city": city, "country_code": country_code}
+
+    patterns = [
+        r"\b(?:weather|forecast|temperature|rain|raining)\s+(?:in|at|for)\s+([a-zA-Z][a-zA-Z -]{2,35})",
+        r"\b(?:in|at|for)\s+([a-zA-Z][a-zA-Z -]{2,35})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, str(question or ""), re.IGNORECASE)
+        if not match:
+            continue
+        city = _clean_city_candidate(match.group(1))
+        if city:
+            return {"city": city, "country_code": None}
+
+    match = re.search(r"\b(?:in|at|for|a|à)\s+([a-zA-Z][a-zA-Z -]{2,35})", str(question or ""), re.IGNORECASE)
+    if match:
+        city = match.group(1)
+        city = re.split(r"\b(?:today|tomorrow|this|now|please|outside|weather|forecast)\b", city, flags=re.IGNORECASE)[0]
+        city = _clean_city_candidate(city)
+        if city:
+            return {"city": city, "country_code": None}
+
+    location = get_ip_location()
+    if location:
+        return {"lat": location.get("lat"), "lon": location.get("lon")}
+
+    return {}
+
+
 def _stats(rows):
     if not rows:
         return {
@@ -450,15 +534,16 @@ def _latest_non_null(rows, field, source_field=None, source_value=None):
     return None
 
 
-def build_context(device_id=None, hours=24):
+def build_context(device_id=None, hours=24, question=None):
     """Return recent sensor/weather data and summary statistics for the assistant."""
     bq = BigQueryClient()
     weather_service = WeatherService()
+    weather_location = _weather_location_from_question(question)
     latest = _sensor_row(bq.get_latest_sensor_reading(device_id=device_id))
     history = [_sensor_row(row) for row in bq.get_sensor_history(device_id=device_id, hours=hours)]
     history = [row for row in history if row]
-    current_weather = weather_service.get_current_weather()
-    forecast = weather_service.get_forecast(days=3)
+    current_weather = weather_service.get_current_weather(**weather_location)
+    forecast = weather_service.get_forecast(days=3, **weather_location)
     latest_temperature = _latest_non_null(history, "temperature_c")
     latest_humidity = _latest_non_null(history, "humidity_pct")
     latest_co2 = _latest_non_null(history, "air_quality_index", "co2_source", "sensor")
@@ -472,6 +557,7 @@ def build_context(device_id=None, hours=24):
         "stats": _stats(history),
         "history_rows": history,
         "recent_rows": history[-20:],
+        "weather_location": weather_location,
         "current_weather": current_weather.to_dict() if current_weather else None,
         "forecast": [day.__dict__ for day in forecast],
     }
@@ -559,7 +645,14 @@ def detect_intent(question):
     return max(scores, key=scores.get)
 
 
-def _forecast_rain_answer(forecast):
+def _weather_place(weather):
+    if not weather:
+        return "outside"
+    return weather.get("city") or "outside"
+
+
+def _forecast_rain_answer(forecast, weather=None):
+    place = _weather_place(weather)
     rainy_days = []
     for day in forecast or []:
         main = str(day.get("weather_main") or day.get("weather_description") or "")
@@ -569,15 +662,31 @@ def _forecast_rain_answer(forecast):
             rainy_days.append(label)
 
     if rainy_days:
-        return "Yes. Rain is expected on " + ", ".join(rainy_days[:3]) + ", so bring an umbrella."
+        return "Yes. Rain is expected in " + place + " on " + ", ".join(rainy_days[:3]) + ", so bring an umbrella."
     if forecast:
-        return "No rain appears in the available forecast. It looks mostly dry."
+        return "No rain appears in the available forecast for " + place + ". It looks mostly dry."
     return "I do not have forecast data yet, so I cannot confirm rain."
+
+
+def _forecast_summary_answer(forecast, weather=None):
+    place = _weather_place(weather)
+    if not forecast:
+        return "I do not have forecast data yet."
+    parts = []
+    for day in forecast[:3]:
+        date = str(day.get("date") or "")
+        label = date[5:10] if len(date) >= 10 else "next day"
+        main = day.get("weather_main") or day.get("weather_description") or "weather"
+        low = day.get("temp_min")
+        high = day.get("temp_max")
+        parts.append(f"{label}: {main}, {low} to {high} C")
+    return "Forecast for " + place + ": " + "; ".join(parts) + "."
 
 
 def _outfit_answer(weather):
     if not weather:
         return "Outdoor weather is unavailable, so take a light layer just in case."
+    place = _weather_place(weather)
     desc = str(weather.get("weather_main") or weather.get("weather_description") or "").lower()
     temp = weather.get("temperature_c")
     try:
@@ -586,14 +695,14 @@ def _outfit_answer(weather):
         temp_num = None
 
     if any(word in desc for word in ["rain", "drizzle", "storm"]):
-        return f"It is {temp} C outside with rain risk, so take an umbrella or rain jacket."
+        return f"It is {temp} C in {place} with rain risk, so take an umbrella or rain jacket."
     if temp_num is not None and temp_num >= 24:
-        return f"It is {temp} C outside, so wear light clothes, sunglasses, and sunscreen."
+        return f"It is {temp} C in {place}, so wear light clothes, sunglasses, and sunscreen."
     if temp_num is not None and temp_num <= 10:
-        return f"It is {temp} C outside, so wear a warm jacket or layers."
+        return f"It is {temp} C in {place}, so wear a warm jacket or layers."
     if temp_num is not None and temp_num <= 16:
-        return f"It is {temp} C outside, so a light jacket or layers are a good idea."
-    return f"It is {temp} C outside with {desc or 'stable weather'}, so dress comfortably."
+        return f"It is {temp} C in {place}, so a light jacket or layers are a good idea."
+    return f"It is {temp} C in {place} with {desc or 'stable weather'}, so dress comfortably."
 
 
 def _ventilation_answer(context):
@@ -807,7 +916,7 @@ def deterministic_answer(question, context):
         return historical
 
     if intent == "rain_forecast":
-        return _forecast_rain_answer(forecast)
+        return _forecast_rain_answer(forecast, weather)
     if intent == "outfit":
         return _outfit_answer(weather)
     if intent == "ventilation":
@@ -817,6 +926,9 @@ def deterministic_answer(question, context):
     if intent == "outdoor_weather":
         if not weather:
             return "Outdoor weather is unavailable right now."
+        q = normalize_question(question)
+        if any(word in q for word in ["forecast", "tomorrow", "week", "weekend", "prevision"]):
+            return _forecast_summary_answer(forecast, weather)
         temp = weather.get("temperature_c")
         desc = weather.get("weather_description") or weather.get("weather_main", "weather")
         city = weather.get("city") or "outside"
@@ -1013,7 +1125,7 @@ def answer_question(question, device_id=None, hours=24):
         raise ValueError("Question is required.")
 
     hours = _required_history_hours(question, hours)
-    context = build_context(device_id=device_id, hours=hours)
+    context = build_context(device_id=device_id, hours=hours, question=question)
     answer, source = generate_response(question.strip(), context)
     return {
         "answer": answer,
