@@ -547,11 +547,20 @@ def build_context(device_id=None, hours=24, question=None):
     latest = _sensor_row(bq.get_latest_sensor_reading(device_id=device_id))
     history = [_sensor_row(row) for row in bq.get_sensor_history(device_id=device_id, hours=hours)]
     history = [row for row in history if row]
+    all_history = history
+    if device_id:
+        all_history = [_sensor_row(row) for row in bq.get_sensor_history(device_id=None, hours=hours)]
+        all_history = [row for row in all_history if row]
     current_weather = weather_service.get_current_weather(**weather_location)
     forecast = weather_service.get_forecast(days=3, **weather_location)
-    latest_temperature = _latest_non_null(history, "temperature_c")
-    latest_humidity = _latest_non_null(history, "humidity_pct")
-    latest_co2 = _latest_non_null(history, "air_quality_index", "co2_source", "sensor")
+    latest_temperature = _latest_non_null(history, "temperature_c") or _latest_non_null(all_history, "temperature_c")
+    latest_humidity = _latest_non_null(history, "humidity_pct") or _latest_non_null(all_history, "humidity_pct")
+    latest_co2 = _latest_non_null(history, "air_quality_index", "co2_source", "sensor") or _latest_non_null(
+        all_history,
+        "air_quality_index",
+        "co2_source",
+        "sensor",
+    )
     return {
         "device_id": device_id or "all devices",
         "hours": hours,
@@ -560,6 +569,7 @@ def build_context(device_id=None, hours=24, question=None):
         "latest_humidity": latest_humidity,
         "latest_co2": latest_co2,
         "stats": _stats(history),
+        "all_device_stats": _stats(all_history),
         "history_rows": history,
         "recent_rows": history[-20:],
         "weather_location": weather_location,

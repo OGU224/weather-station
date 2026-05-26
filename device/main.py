@@ -132,6 +132,7 @@ SENSOR_MODE = "env3"  # "env3" for ENV III, "co2" for Unit TVOC/eCO2 on PORTA.
 
 try:
     import device_config
+    DEVICE_ID = getattr(device_config, "DEVICE_ID", DEVICE_ID)
     SENSOR_MODE = getattr(device_config, "SENSOR_MODE", SENSOR_MODE)
 except Exception:
     pass

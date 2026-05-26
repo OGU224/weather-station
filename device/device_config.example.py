@@ -5,6 +5,7 @@ Do not commit real WiFi passwords or local IP addresses.
 """
 
 ACTIVE_PROFILE = "university"
+DEVICE_ID = "m5stack-env3"  # Use a unique value per Core2, for example "m5stack-co2".
 SENSOR_MODE = "env3"  # "env3" or "co2"
 
 WIFI_PROFILES = {
