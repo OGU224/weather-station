@@ -177,6 +177,17 @@ def _aqi_label(val):
     return "Poor", "#e25555"
 
 
+def _co2_rows(df):
+    if df.empty or "air_quality_index" not in df.columns:
+        return df.iloc[0:0] if hasattr(df, "iloc") else df
+    co2_df = df[df["air_quality_index"].notna()].copy()
+    if "co2_source" in co2_df.columns:
+        sensor_rows = co2_df[co2_df["co2_source"] == "sensor"]
+        if not sensor_rows.empty:
+            return sensor_rows
+    return co2_df
+
+
 # ── UI components ─────────────────────────────────────────────────────────────
 
 def _ut_stat(label, value, detail="", color="#25a7c8", companion_idx=None):
@@ -476,9 +487,7 @@ def render():
             with c3:
                 fig = go.Figure()
                 if "air_quality_index" in df.columns:
-                    co2_df = df
-                    if "co2_source" in df.columns:
-                        co2_df = df[df["co2_source"] == "sensor"]
+                    co2_df = _co2_rows(df)
                     if not co2_df.empty and co2_df["air_quality_index"].notna().any():
                         colors = co2_df["air_quality_index"].apply(
                             lambda v: "#24c08b" if v < 800 else ("#d6a529" if v < 1200 else "#e25555")

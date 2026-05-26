@@ -161,6 +161,16 @@ def _comfort_score(df):
         label += " Signal: " + ", ".join(notes[:2]) + "."
     return score, label, notes
 
+def _co2_rows(df):
+    if df.empty or "air_quality_index" not in df.columns:
+        return df.iloc[0:0] if hasattr(df, "iloc") else df
+    co2_df = df[df["air_quality_index"].notna()].copy()
+    if "co2_source" in co2_df.columns:
+        sensor_rows = co2_df[co2_df["co2_source"] == "sensor"]
+        if not sensor_rows.empty:
+            return sensor_rows
+    return co2_df
+
 def _ut_chart_layout(fig, title, height=260, y_title=""):
     fig.update_layout(
         title=dict(text=title, font=dict(family="Press Start 2P", size=9, color="#888")),
@@ -203,9 +213,7 @@ def _ut_hum_chart(df, title="HUMIDITY"):
 
 def _ut_co2_chart(df, title="CO2"):
     fig = go.Figure()
-    co2_df = df
-    if "co2_source" in df.columns:
-        co2_df = df[df["co2_source"] == "sensor"]
+    co2_df = _co2_rows(df)
     if co2_df.empty or "air_quality_index" not in co2_df.columns or co2_df["air_quality_index"].isna().all():
         fig.add_annotation(text="No CO2 sensor data", x=0.5, y=0.5, showarrow=False, font=dict(color="#555"))
     else:
