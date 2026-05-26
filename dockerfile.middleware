@@ -6,9 +6,6 @@ COPY config/ config/
 COPY data/ data/
 COPY services/ services/
 COPY middleware/ middleware/
-COPY .env .env
-COPY service-account.json service-account.json
-ENV GOOGLE_APPLICATION_CREDENTIALS=/app/service-account.json
 ENV FLASK_HOST=0.0.0.0
 ENV FLASK_PORT=8080
 EXPOSE 8080
