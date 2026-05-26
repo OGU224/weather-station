@@ -10,7 +10,6 @@ import streamlit as st
 from pages.current import ALL_COMPANIONS, _companion
 
 if "companion_stats" not in st.session_state:
-    # Chaque compagnon commence au niveau 1 avec 0 XP
     st.session_state["companion_stats"] = {
         name: {"xp": 0, "level": 1} for name, _ in ALL_COMPANIONS
     }
@@ -27,7 +26,7 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght=400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
 html, body, [class*="css"] {
@@ -197,70 +196,6 @@ header[data-testid="stHeader"] {
     font-weight: 650;
 }
 
-.routine-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
-    margin-top: 16px;
-}
-
-.routine-grid span {
-    background: #0f1412;
-    border: 2px solid #2e3b47;
-    border-radius: 0;
-    color: #aab7b2;
-    padding: 7px 9px;
-    font-size: 0.78rem;
-}
-
-.smart-panel, .smart-panel-soft {
-    background: #151a19;
-    border: 1px solid #2d3436;
-    border-radius: 8px;
-    padding: 16px 18px;
-}
-
-.pixel-avatar {
-    width: 86px;
-    height: 86px;
-    margin: 0 auto 0.9rem auto;
-    background:
-      linear-gradient(#0000 0 0),
-      #39d0ff;
-    image-rendering: pixelated;
-    box-shadow:
-      0 0 0 8px #111316,
-      8px 0 0 8px #111316,
-      -8px 0 0 8px #111316,
-      0 8px 0 8px #111316,
-      0 -8px 0 8px #111316,
-      16px 16px 0 0 #ffcc5c,
-      -16px 16px 0 0 #ffcc5c;
-    position: relative;
-}
-
-.pixel-avatar::before {
-    content: "";
-    position: absolute;
-    left: 18px;
-    top: 26px;
-    width: 10px;
-    height: 10px;
-    background: #071014;
-    box-shadow: 40px 0 0 #071014, 20px 28px 0 8px #071014;
-}
-
-.pixel-avatar::after {
-    content: "";
-    position: absolute;
-    left: 28px;
-    top: -20px;
-    width: 30px;
-    height: 12px;
-    background: #ffcc5c;
-    box-shadow: 0 -10px 0 #ffcc5c;
-}
-
 .pixel-menu-label {
     color: #76848e;
     font-family: 'Press Start 2P', monospace;
@@ -278,62 +213,11 @@ header[data-testid="stHeader"] {
     line-height: 1.4;
 }
 
-.smart-label {
-    color: #82908b;
-    font-size: 0.72rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 0.35rem;
-}
-
-.smart-value {
-    color: #f3f7f5;
-    font-size: 2.1rem;
-    line-height: 1;
-    font-weight: 750;
-}
-
-.smart-copy {
-    color: #aab7b2;
-    font-size: 0.94rem;
-    line-height: 1.45;
-}
-
-.smart-pill {
-    display: inline-block;
-    border: 1px solid #2d3436;
-    background: #0f1412;
-    color: #aab7b2;
-    border-radius: 6px;
-    padding: 0.24rem 0.58rem;
-    margin: 0.12rem 0.18rem 0.12rem 0;
-    font-size: 0.78rem;
-}
-
 h1 {
     letter-spacing: 0;
     font-weight: 700;
     margin-bottom: 0.35rem;
     color: #f3f7f5;
-}
-
-h3 {
-    margin-top: 1.25rem;
-    margin-bottom: 0.75rem;
-}
-
-div[role="radiogroup"] label {
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    padding: 0.35rem 0.5rem;
-    margin-bottom: 0.15rem;
-}
-
-div[role="radiogroup"] label:hover {
-    background: #171d1b;
-    border-color: #2d3436;
 }
 
 .sidebar-brand {
@@ -354,22 +238,6 @@ div[role="radiogroup"] label:hover {
     margin-top: 0.25rem;
 }
 
-.sidebar-section-label {
-    color: #6f7c78;
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin: 1rem 0 0.35rem 0;
-}
-
-.sidebar-footer {
-    color: #6f7c78;
-    font-size: 0.72rem;
-    line-height: 1.35;
-    padding-top: 1rem;
-}
-
 .stButton > button {
     border-radius: 0;
     border: 3px solid #2e3b47;
@@ -385,35 +253,17 @@ div[role="radiogroup"] label:hover {
     color: #f3f7f5;
 }
 
+/* --- LOGIQUE DE SURBRILLANCE POUR LA PAGE ACTIVE --- */
+.stButton > button[data-testid="baseButton-primary"] {
+    border-color: #ffcc5c !important;
+    background: #2b2615 !important;
+    color: #ffcc5c !important;
+    box-shadow: 0 0 10px rgba(255, 204, 92, 0.3);
+}
+
 .stButton > button:focus {
     border-color: #39d0ff;
     box-shadow: none;
-}
-
-.stTabs [data-baseweb="tab-list"] {
-    gap: 8px;
-    border-bottom: 3px solid #2e3b47;
-}
-
-.stTabs [data-baseweb="tab"] {
-    background: #151b1f;
-    border: 3px solid #2e3b47;
-    border-bottom: 0;
-    border-radius: 0;
-    color: #aab7b2;
-    font-weight: 760;
-    padding: 9px 14px;
-}
-
-.stTabs [aria-selected="true"] {
-    background: #1e2b31;
-    color: #f3f7f5;
-}
-
-div[data-testid="stExpander"] {
-    background: #11171b;
-    border: 3px solid #2e3b47;
-    border-radius: 0;
 }
 
 div[data-testid="stTextInput"] input,
@@ -424,67 +274,6 @@ div[data-baseweb="select"] > div {
     border-radius: 0;
     color: #f3f7f5;
 }
-
-.console-panel {
-    background: #071014;
-    border: 3px solid #2e3b47;
-    box-shadow: inset 0 0 0 2px #11171b;
-    border-radius: 0;
-    padding: 16px;
-    color: #d9f8f0;
-    font-family: 'Inter', sans-serif;
-    line-height: 1.55;
-}
-
-.mission-row {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-top: 10px;
-}
-
-.mission-chip {
-    background: #0f1412;
-    border: 2px solid #2e3b47;
-    color: #aab7b2;
-    padding: 6px 9px;
-    font-size: 0.78rem;
-}
-
-.boss-card {
-    background: #11171b;
-    border: 3px solid #2e3b47;
-    padding: 14px;
-    min-height: 150px;
-}
-
-.boss-rank {
-    font-family: 'Press Start 2P', monospace;
-    font-size: 2.15rem;
-    line-height: 1.15;
-    color: #ffcc5c;
-}
-
-.health-bar {
-    height: 18px;
-    background: #0b0f0e;
-    border: 3px solid #2e3b47;
-    margin-top: 10px;
-}
-
-.health-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #e25555, #d6a529, #24c08b);
-}
-
-.mood-orb {
-    width: 72px;
-    height: 72px;
-    border: 3px solid #2e3b47;
-    background: var(--mood-color);
-    box-shadow: 0 0 0 5px #070a0c, 0 0 28px var(--mood-color);
-    margin: 0 auto 10px auto;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -492,12 +281,10 @@ if "dashboard_page" not in st.session_state:
     st.session_state["dashboard_page"] = "Smart Home"
 
 with st.sidebar:
-    # Récupération des données du compagnon actuel
     idx = st.session_state["selected_companion_idx"]
     name, _ = ALL_COMPANIONS[idx]
     stats = st.session_state["companion_stats"][name]
     
-    # Affichage du compagnon et de son Niveau/XP
     st.markdown(f"""
     <div class="sidebar-brand" style="text-align:center;">
         <div style="color:#ffcc5c; font-family:'Press Start 2P'; font-size:0.6rem; margin-bottom:10px;">
@@ -513,17 +300,21 @@ with st.sidebar:
 
     st.markdown('<div class="pixel-menu-label">SELECT MODE</div>', unsafe_allow_html=True)
 
-    # Mise à jour de ton menu avec la nouvelle page
     menu_items = [
         ("Smart Home", "Home Base"),
         ("Live Station", "Live Map"),
         ("History", "Data Archive"),
         ("Ask Data", "AI Console"),
-        ("Companion", "Monster Gym"), # La nouvelle page est bien là
+        ("Companion", "Monster Gym"),
     ]
+    
+    # Rendu dynamique avec gestion de la surbrillance
     for page_key, label in menu_items:
-        prefix = "> " if st.session_state["dashboard_page"] == page_key else ". "
-        if st.button(prefix + label, use_container_width=True, key=f"nav_{page_key}"):
+        is_active = st.session_state["dashboard_page"] == page_key
+        prefix = "❤️ " if is_active else "  "
+        btn_type = "primary" if is_active else "secondary"
+        
+        if st.button(prefix + label, use_container_width=True, key=f"nav_{page_key}", type=btn_type):
             st.session_state["dashboard_page"] = page_key
             st.rerun()
 
@@ -539,17 +330,7 @@ with st.sidebar:
         time.sleep(60)
         st.rerun()
 
-    st.markdown("""
-    <div class="sidebar-status">
-        Live room comfort<br>
-        Outdoor forecast<br>
-        Voice assistant<br>
-        Morning music
-    </div>
-    """, unsafe_allow_html=True)
-
 sys.path.insert(0, os.path.dirname(__file__))
-
 page = st.session_state["dashboard_page"]
 
 if page == "Smart Home":
@@ -561,8 +342,8 @@ elif page == "History":
 elif page == "Ask Data":
     from pages.ask import render
 elif page == "Companion":
-    from pages.game import render  # <--- Appelle ENFIN ton fichier game.py !
+    from pages.game import render
 else:
-    from pages.smart_home import render # Sécurité au cas où
+    from pages.smart_home import render
 
 render()

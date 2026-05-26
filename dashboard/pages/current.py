@@ -15,7 +15,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-MIDDLEWARE_URL = os.getenv("MIDDLEWARE_URL", "https://weather-middleware-387666611940.europe-west1.run.app")
+MIDDLEWARE_URL = os.getenv("MIDDLEWARE_URL", "http://127.0.0.1:5000")
 HUMIDITY_ALERT = 40
 
 # ── Companion SVG sprites ─────────────────────────────────────────────────────
