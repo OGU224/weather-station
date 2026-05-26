@@ -217,10 +217,22 @@ def _ut_co2_chart(df, title="CO2"):
     if co2_df.empty or "air_quality_index" not in co2_df.columns or co2_df["air_quality_index"].isna().all():
         fig.add_annotation(text="No CO2 sensor data", x=0.5, y=0.5, showarrow=False, font=dict(color="#555"))
     else:
-        colors = co2_df["air_quality_index"].apply(
-            lambda v: "#24c08b" if v < 800 else ("#d6a529" if v < 1200 else "#e25555")
-        ).tolist()
-        fig.add_trace(go.Bar(x=co2_df["timestamp"], y=co2_df["air_quality_index"], marker_color=colors))
+        co2_values = co2_df["air_quality_index"]
+        fig.add_trace(go.Scatter(
+            x=co2_df["timestamp"],
+            y=co2_values,
+            mode="lines+markers",
+            line=dict(color="#24c08b", width=3),
+            marker=dict(size=6, color="#24c08b", line=dict(color="#ffffff", width=1)),
+            fill="tozeroy",
+            fillcolor="rgba(36,192,139,0.12)",
+        ))
+        fig.add_hline(y=800, line_dash="dash", line_color="#d6a529",
+                      annotation_text="800", annotation_font_color="#d6a529")
+        fig.add_hline(y=1200, line_dash="dash", line_color="#e25555",
+                      annotation_text="1200", annotation_font_color="#e25555")
+        max_value = float(co2_values.max())
+        fig.update_yaxes(range=[0, max(1000, max_value + 150)])
     return _ut_chart_layout(fig, title, y_title="ppm")
 
 def _ut_motion_chart(df, title="MOTION EVENTS"):
