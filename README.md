@@ -11,7 +11,7 @@ gamified web dashboard and an on-device Core2 interface.
 - Skander Ziadi: Core2 UIFlow 2 firmware, sensor collection, WiFi profile flow,
   Google STT/TTS integration on the device, assistant flow, weather/location
   integration, Spotify morning routine, deployment support, and code cleanup.
-- Ugo Bieri: Streamlit dashboard interface, gamified dashboard pages, Cloud Run
+- Ugo Bieri: STT on Core2, UI on Core2, UIStreamlit dashboard interface, gamified dashboard pages, Cloud Run
   deployment work, BigQuery setup support, and project integration. (Video editor too :)
 
 ## Demo Links
